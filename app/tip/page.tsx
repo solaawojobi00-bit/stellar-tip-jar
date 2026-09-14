@@ -1,15 +1,17 @@
 /**
  * The tip page. Fully described by its query string — no database, no login.
  *
- * Scaffold: validation, asset/amount parsing and the SEP-0007 URI are wired up.
- * The QR code, "Copy link"/"Open in wallet" buttons and the live running-total
- * fetch land in a later change.
+ * Parsing and validation happen here, on the server, so a malformed link
+ * renders its error without waiting for JavaScript. The QR, amount selection,
+ * buttons and running total are interactive and live in <TipJar>.
  */
 
 import Link from 'next/link';
 
-import { buildPayUri, parseAsset, parseSuggestedAmounts, assetLabel } from '@/lib/sep7';
+import { parseAsset, parseSuggestedAmounts } from '@/lib/sep7';
 import { isValidDestination } from '@/lib/strkey';
+
+import TipJar from './tip-jar';
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -66,7 +68,6 @@ export default async function TipPage({ searchParams }: { searchParams: SearchPa
   }
 
   const amounts = parseSuggestedAmounts(one(params.amounts));
-  const payUri = buildPayUri({ destination: dest, asset, msg });
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 px-6 py-12">
@@ -75,36 +76,7 @@ export default async function TipPage({ searchParams }: { searchParams: SearchPa
         {msg ? <p className="text-sm text-neutral-600 dark:text-neutral-400">{msg}</p> : null}
       </header>
 
-      {/* TODO: QR code for payUri */}
-      <section
-        aria-label="Payment code"
-        className="flex aspect-square items-center justify-center rounded-lg border border-dashed border-neutral-300 text-sm text-neutral-500 dark:border-neutral-700"
-      >
-        QR code
-      </section>
-
-      {amounts.length > 0 ? (
-        <section aria-label="Suggested amounts" className="flex flex-wrap gap-2">
-          {amounts.map((amount) => (
-            <span
-              key={amount}
-              className="rounded-full border border-neutral-300 px-4 py-2 text-sm dark:border-neutral-700"
-            >
-              {amount} {assetLabel(asset)}
-            </span>
-          ))}
-        </section>
-      ) : null}
-
-      <section aria-label="Destination" className="flex flex-col gap-1">
-        <span className="text-xs uppercase tracking-wide text-neutral-500">Destination</span>
-        <code className="break-all text-xs">{dest}</code>
-      </section>
-
-      {/* TODO: "Copy link" + "Open in wallet" buttons, and the /api/total fetch. */}
-      <a href={payUri} className="rounded-lg bg-neutral-900 px-4 py-3 text-center text-sm font-medium text-white dark:bg-white dark:text-neutral-900">
-        Open in wallet
-      </a>
+      <TipJar dest={dest} asset={asset} amounts={amounts} msg={msg} />
     </main>
   );
 }
