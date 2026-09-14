@@ -14,6 +14,7 @@ import {
   DEFAULT_HORIZON_URL,
   HORIZON_PAGE_LIMIT,
   MAX_PAGES,
+  fromStroops,
   sumPayments,
   type HorizonPaymentsPage,
   type HorizonPaymentRecord,
@@ -25,9 +26,32 @@ import { isValidDestination } from '@/lib/strkey';
 const CACHE_TTL_SECONDS = 30;
 const STALE_WHILE_REVALIDATE_SECONDS = 120;
 
+const CACHE_CONTROL = `public, s-maxage=${CACHE_TTL_SECONDS}, stale-while-revalidate=${STALE_WHILE_REVALIDATE_SECONDS}`;
+
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
 }
+
+interface TotalBody {
+  dest: string;
+  asset: string;
+  total: string;
+  count: number;
+  /** False when Horizon has no such account yet. */
+  funded: boolean;
+  truncated: boolean;
+}
+
+function jsonTotal(body: TotalBody): Response {
+  return Response.json(body, { headers: { 'Cache-Control': CACHE_CONTROL } });
+}
+
+/**
+ * Zero in the same 7-decimal form as every other total. Derived from
+ * fromStroops rather than written out, so it cannot drift from the format
+ * sumPayments produces — callers can parse `total` one way, always.
+ */
+const ZERO_TOTAL = fromStroops(0n);
 
 export async function GET(request: Request): Promise<Response> {
   const { searchParams } = new URL(request.url);
@@ -43,6 +67,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const horizonUrl = process.env.HORIZON_URL ?? DEFAULT_HORIZON_URL;
+  const assetLabel = asset.kind === 'native' ? 'native' : `${asset.code}:${asset.issuer}`;
 
   const records: HorizonPaymentRecord[] = [];
   let next: string | null =
@@ -56,8 +81,18 @@ export async function GET(request: Request): Promise<Response> {
         headers: { Accept: 'application/json' },
       });
 
+      // An address with no account yet is the normal state of a tip jar that
+      // has never been used. Report a zero total rather than an error, so a
+      // freshly shared page renders instead of breaking.
       if (response.status === 404) {
-        return jsonError('Account not found or not yet funded.', 404);
+        return jsonTotal({
+          dest,
+          asset: assetLabel,
+          total: ZERO_TOTAL,
+          count: 0,
+          funded: false,
+          truncated: false,
+        });
       }
 
       if (!response.ok) {
@@ -76,18 +111,13 @@ export async function GET(request: Request): Promise<Response> {
 
   const { total, count } = sumPayments(records, dest, asset);
 
-  return Response.json(
-    {
-      dest,
-      asset: asset.kind === 'native' ? 'native' : `${asset.code}:${asset.issuer}`,
-      total,
-      count,
-      truncated: records.length >= HORIZON_PAGE_LIMIT * MAX_PAGES,
-    },
-    {
-      headers: {
-        'Cache-Control': `public, s-maxage=${CACHE_TTL_SECONDS}, stale-while-revalidate=${STALE_WHILE_REVALIDATE_SECONDS}`,
-      },
-    },
-  );
+  return jsonTotal({
+    dest,
+    asset: assetLabel,
+    total,
+    count,
+    // Horizon answered, so the account exists — even if nothing matched.
+    funded: true,
+    truncated: records.length >= HORIZON_PAGE_LIMIT * MAX_PAGES,
+  });
 }
