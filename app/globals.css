@@ -12,6 +12,83 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/**
+ * "Organic" design-system tokens, transcribed from the Claude Design handoff
+ * (_ds/organic-…/styles.css). Namespaced `jar-*` on purpose: the ramps below
+ * are the same *shape* as Tailwind's built-ins, and overwriting `--color-neutral-*`
+ * would silently restyle every other page that uses stock neutrals.
+ *
+ * Ramps are tonal — one shared lightness scale — so step N of any role matches
+ * step N of the others in visual value.
+ */
+@theme {
+  --color-jar-bg: #f5ead8;
+  --color-jar-surface: #ebddc5;
+  --color-jar-ink: #201e1d;
+
+  /* Sand — the neutral ramp. */
+  --color-jar-sand-100: #f9f4ed;
+  --color-jar-sand-200: #eee7db;
+  --color-jar-sand-300: #dcd3c4;
+  --color-jar-sand-400: #c0b6a5;
+  --color-jar-sand-500: #a19786;
+  --color-jar-sand-600: #82796a;
+  --color-jar-sand-700: #645c50;
+  --color-jar-sand-800: #474238;
+  --color-jar-sand-900: #2e2b25;
+
+  /* Clay — the primary accent (buttons, selected chips, headings). */
+  --color-jar-clay-100: #fff2eb;
+  --color-jar-clay-200: #ffe1d0;
+  --color-jar-clay-300: #ffc6a5;
+  --color-jar-clay-400: #f6a06b;
+  --color-jar-clay-500: #d67f48;
+  --color-jar-clay-600: #b2622d;
+  --color-jar-clay-700: #8c491a;
+  --color-jar-clay-800: #643312;
+  --color-jar-clay-900: #402310;
+  --color-jar-clay: #c67139;
+
+  /* Moss — the secondary accent (ledger/live signals, the sent screen). */
+  --color-jar-moss-100: #f0fae1;
+  --color-jar-moss-200: #e1eecc;
+  --color-jar-moss-300: #ccdbb2;
+  --color-jar-moss-400: #aebf92;
+  --color-jar-moss-500: #8fa073;
+  --color-jar-moss-600: #728157;
+  --color-jar-moss-700: #56633f;
+  --color-jar-moss-800: #3d472b;
+  --color-jar-moss-900: #272e1b;
+
+  --font-display: var(--font-caprasimo), Georgia, serif;
+  --font-body: var(--font-figtree), system-ui, sans-serif;
+
+  --radius-jar-sm: 8px;
+  --radius-jar-md: 16px;
+  --radius-jar-lg: 28px;
+
+  --shadow-jar-sm: 0 1px 2px color-mix(in srgb, #2e2b25 14%, transparent);
+  --shadow-jar-md: 0 3px 10px color-mix(in srgb, #2e2b25 16%, transparent);
+  --shadow-jar-lg: 0 12px 32px color-mix(in srgb, #2e2b25 22%, transparent);
+}
+
+/* The jar pops in once on the post-send screen. Suppressed for reduced motion. */
+@keyframes jarpop {
+  0% { transform: scale(0.82); opacity: 0; }
+  60% { transform: scale(1.06); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-jarpop {
+  animation: jarpop 420ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-jarpop {
+    animation: none;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;

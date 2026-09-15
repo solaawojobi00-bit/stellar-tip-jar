@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { parseSuggestedAmounts } from '@/lib/sep7';
 
-import { formatTotal } from '../tip-jar';
+import { formatTotal, truncateAddress } from '../tip-jar';
 import TipPage from '../page';
 
 /**
@@ -62,6 +62,15 @@ async function renderTip(query: Record<string, string> = {}) {
 /** The QR is an <svg> labelled with the destination; return its encoded value. */
 function qrCode(): SVGElement | null {
   return document.querySelector('svg[data-testid], svg');
+}
+
+/**
+ * The wallet hand-off link. Its visible label tracks the selected amount
+ * ("Open in wallet" → "Send 5 XLM"), and the accessible name follows the
+ * visible text on purpose, so match either form rather than pinning one.
+ */
+function walletLink(): HTMLElement {
+  return screen.getByRole('link', { name: /^(Open in wallet|Send [\d.]+ [A-Z]+)$/ });
 }
 
 beforeEach(() => {
@@ -140,7 +149,7 @@ describe('tip page — wallet link and suggested amounts', () => {
   it('links "Open in wallet" to a web+stellar pay URI', async () => {
     await renderTip();
 
-    const link = screen.getByRole('link', { name: 'Open in wallet' });
+    const link = walletLink();
     const href = link.getAttribute('href')!;
 
     expect(href.startsWith('web+stellar:pay?')).toBe(true);
@@ -150,7 +159,7 @@ describe('tip page — wallet link and suggested amounts', () => {
   it('omits amount from the pay URI until one is chosen', async () => {
     await renderTip({ amounts: '5,10,25' });
 
-    const href = screen.getByRole('link', { name: 'Open in wallet' }).getAttribute('href')!;
+    const href = walletLink().getAttribute('href')!;
     expect(new URLSearchParams(href.slice(href.indexOf('?') + 1)).has('amount')).toBe(false);
   });
 
@@ -162,7 +171,7 @@ describe('tip page — wallet link and suggested amounts', () => {
 
       await user.click(screen.getByRole('button', { name: `${amount} XLM` }));
 
-      const href = screen.getByRole('link', { name: 'Open in wallet' }).getAttribute('href')!;
+      const href = walletLink().getAttribute('href')!;
       const params = new URLSearchParams(href.slice(href.indexOf('?') + 1));
       expect(params.get('amount')).toBe(amount);
       expect(params.get('destination')).toBe(DEST);
@@ -180,7 +189,7 @@ describe('tip page — wallet link and suggested amounts', () => {
     await user.click(chip);
     expect(chip.getAttribute('aria-pressed')).toBe('false');
 
-    const href = screen.getByRole('link', { name: 'Open in wallet' }).getAttribute('href')!;
+    const href = walletLink().getAttribute('href')!;
     expect(new URLSearchParams(href.slice(href.indexOf('?') + 1)).has('amount')).toBe(false);
   });
 
@@ -192,7 +201,7 @@ describe('tip page — wallet link and suggested amounts', () => {
   it('carries asset code and issuer into the pay URI', async () => {
     await renderTip({ amounts: '5', asset: `USDC:${USDC_ISSUER}` });
 
-    const href = screen.getByRole('link', { name: 'Open in wallet' }).getAttribute('href')!;
+    const href = walletLink().getAttribute('href')!;
     const params = new URLSearchParams(href.slice(href.indexOf('?') + 1));
     expect(params.get('asset_code')).toBe('USDC');
     expect(params.get('asset_issuer')).toBe(USDC_ISSUER);
@@ -210,7 +219,7 @@ describe('tip page — wallet link and suggested amounts', () => {
   it('includes msg in the pay URI when given', async () => {
     await renderTip({ msg: 'coffee & cake' });
 
-    const href = screen.getByRole('link', { name: 'Open in wallet' }).getAttribute('href')!;
+    const href = walletLink().getAttribute('href')!;
     expect(new URLSearchParams(href.slice(href.indexOf('?') + 1)).get('msg')).toBe('coffee & cake');
   });
 });
@@ -298,7 +307,8 @@ describe('tip page — running total', () => {
     serveTotal(funded({ total: '0.0000000', count: 0 }));
     await renderTip();
 
-    expect(await screen.findByText(/0 XLM/)).toBeTruthy();
+    // Anchored: the default "100 XLM" chip also contains "0 XLM".
+    expect(await screen.findByText(/^0 XLM$/)).toBeTruthy();
     expect(screen.queryByText(/hasn't been funded on-chain yet/)).toBeNull();
   });
 
@@ -344,6 +354,124 @@ describe('tip page — running total', () => {
     await user.click(screen.getByRole('button', { name: '5 XLM' }));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('tip page — default amounts and "Other"', () => {
+  it('falls back to the design default chips when the link carries no amounts', async () => {
+    await renderTip();
+
+    for (const amount of ['5', '25', '100']) {
+      expect(screen.getByRole('button', { name: `${amount} XLM` })).toBeTruthy();
+    }
+  });
+
+  it('offers an "Other" chip alongside the suggested amounts', async () => {
+    await renderTip({ amounts: '5,10' });
+    expect(screen.getByRole('button', { name: 'Other' })).toBeTruthy();
+  });
+
+  it('leaves the amount open when "Other" is selected', async () => {
+    const user = userEvent.setup();
+    await renderTip({ amounts: '5,10' });
+
+    await user.click(screen.getByRole('button', { name: '5 XLM' }));
+    expect(new URL(`x:${walletLink().getAttribute('href')!.split('?')[1]}`).searchParams).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Other' }));
+
+    const href = walletLink().getAttribute('href')!;
+    // "Other" means "I'll type my own figure" — no amount may reach the URI.
+    expect(new URLSearchParams(href.slice(href.indexOf('?') + 1)).has('amount')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Other' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('relabels the wallet link once a concrete amount is chosen', async () => {
+    const user = userEvent.setup();
+    await renderTip({ amounts: '5,10' });
+
+    expect(screen.getByRole('link', { name: 'Open in wallet' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '5 XLM' }));
+
+    expect(screen.getByRole('link', { name: 'Send 5 XLM' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Open in wallet' })).toBeNull();
+  });
+});
+
+describe('tip page — post-send screen', () => {
+  it('claims only that the payment was handed off, never that it completed', async () => {
+    const user = userEvent.setup();
+    await renderTip({ name: 'Ada' });
+
+    await user.click(walletLink());
+
+    expect(screen.getByRole('heading', { name: 'Thanks for sending it!' })).toBeTruthy();
+    // The whole point of the copy: no "confirmed", no checkmark, no claim.
+    expect(screen.getByText(/We can't confirm the payment/)).toBeTruthy();
+    expect(screen.queryByText(/confirmed/i)).toBeNull();
+  });
+
+  it('explains that the page only builds the link', async () => {
+    const user = userEvent.setup();
+    await renderTip();
+
+    await user.click(walletLink());
+    expect(screen.getByText(/only builds the link and hands it to your wallet/)).toBeTruthy();
+  });
+
+  it('returns to the jar and clears the selected amount', async () => {
+    const user = userEvent.setup();
+    await renderTip({ amounts: '5,10', name: 'Ada' });
+
+    await user.click(screen.getByRole('button', { name: '5 XLM' }));
+    await user.click(walletLink());
+    await user.click(screen.getByRole('button', { name: "Back to Ada's jar" }));
+
+    expect(screen.getByRole('link', { name: 'Open in wallet' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '5 XLM' }).getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+  });
+});
+
+describe('tip page — address and ledger links', () => {
+  it('shows a truncated address but copies the full one', async () => {
+    const user = userEvent.setup();
+    await renderTip();
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+
+    const button = screen.getByTitle(DEST);
+    expect(button.textContent).not.toBe(DEST);
+
+    await user.click(button);
+    expect(writeText).toHaveBeenCalledWith(DEST);
+    expect(await screen.findByRole('button', { name: 'Address copied' })).toBeTruthy();
+  });
+
+  it('points "verify on-chain" at the destination account', async () => {
+    await renderTip();
+
+    const link = await screen.findByRole('link', { name: 'verify on-chain' });
+    expect(link.getAttribute('href')).toContain(DEST);
+    expect(link.getAttribute('href')!.startsWith('https://stellar.expert/')).toBe(true);
+  });
+
+  it('states that funds are never held or routed', async () => {
+    await renderTip({ name: 'Ada' });
+    expect(screen.getByText(/We never hold, route, or touch the money/)).toBeTruthy();
+  });
+});
+
+describe('truncateAddress', () => {
+  it('keeps both ends of a strkey so it stays recognisable', () => {
+    const short = truncateAddress(DEST);
+    expect(short.startsWith(DEST.slice(0, 8))).toBe(true);
+    expect(short.endsWith(DEST.slice(-8))).toBe(true);
+    expect(short.length).toBeLessThan(DEST.length);
+  });
+
+  it('leaves an already-short value alone', () => {
+    expect(truncateAddress('GSHORT')).toBe('GSHORT');
   });
 });
 
