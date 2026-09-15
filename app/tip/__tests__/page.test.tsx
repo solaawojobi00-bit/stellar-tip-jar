@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { parseSuggestedAmounts } from '@/lib/sep7';
 
-import { formatTotal, truncateAddress } from '../tip-jar';
+import { formatAmount, formatTotal, truncateAddress } from '../tip-jar';
 import TipPage from '../page';
 
 /**
@@ -346,6 +346,47 @@ describe('tip page — running total', () => {
     expect(await screen.findByText(/Couldn't load the running total/)).toBeTruthy();
   });
 
+  it('appends a "+" to the amount when the total was truncated', async () => {
+    serveTotal(funded({ truncated: true }));
+    await renderTip();
+
+    // A partial sum is a floor, and the number says so itself.
+    expect(await screen.findByText(/^23192\.97498\+ XLM$/)).toBeTruthy();
+  });
+
+  it('shows no "+" when the total covers the whole history', async () => {
+    serveTotal(funded({ truncated: false }));
+    await renderTip();
+
+    expect(await screen.findByText(/^23192\.97498 XLM$/)).toBeTruthy();
+    expect(screen.queryByText(/23192\.97498\+/)).toBeNull();
+  });
+
+  it('keeps the tip count wording unchanged when truncated', async () => {
+    serveTotal(funded({ truncated: true }));
+    await renderTip();
+
+    expect(await screen.findByText(/across 8 tips/)).toBeTruthy();
+  });
+
+  it('adds no caveat text, tooltip or badge alongside a truncated total', async () => {
+    serveTotal(funded({ truncated: true }));
+    await renderTip();
+
+    await screen.findByText(/^23192\.97498\+ XLM$/);
+    // The "+" is the whole disclosure — the design carries no added apology.
+    for (const wording of [/partial/i, /incomplete/i, /truncat/i, /at least/i, /approx/i]) {
+      expect(screen.queryByText(wording)).toBeNull();
+    }
+  });
+
+  it('marks a truncated zero total the same way', async () => {
+    serveTotal(funded({ total: '0.0000000', count: 0, truncated: true }));
+    await renderTip();
+
+    expect(await screen.findByText(/^0\+ XLM$/)).toBeTruthy();
+  });
+
   it('does not refetch the total when an amount is selected', async () => {
     const user = userEvent.setup();
     await renderTip({ amounts: '5,10' });
@@ -488,5 +529,26 @@ describe('formatTotal', () => {
 
   it('leaves an integer-only string alone', () => {
     expect(formatTotal('42')).toBe('42');
+  });
+});
+
+describe('formatAmount', () => {
+  it.each([
+    ['23192.9749800', '23192.97498+'],
+    ['0.0000000', '0+'],
+    ['5.0000000', '5+'],
+  ])('suffixes %s with a "+" when truncated', (wire, display) => {
+    expect(formatAmount(wire, true)).toBe(display);
+  });
+
+  it('leaves a complete total exactly as formatTotal renders it', () => {
+    for (const wire of ['23192.9749800', '0.0000000', '1.5000000']) {
+      expect(formatAmount(wire, false)).toBe(formatTotal(wire));
+    }
+  });
+
+  it('puts the "+" on the number, not after the asset code', () => {
+    // "23192.97498+ XLM", never "23192.97498 XLM+".
+    expect(formatAmount('23192.9749800', true).endsWith('+')).toBe(true);
   });
 });

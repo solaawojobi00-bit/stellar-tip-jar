@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import creditPage from '@/lib/__tests__/fixtures/horizon-payments-credit.json';
 import nativePage from '@/lib/__tests__/fixtures/horizon-payments-native.json';
-import { HORIZON_PAGE_LIMIT, MAX_PAGES } from '@/lib/horizon';
+import { HORIZON_PAGE_LIMIT, PAGINATION_BUDGET_MS } from '@/lib/horizon';
 
 import { GET } from '../route';
 
@@ -77,6 +77,40 @@ function serve(...responses: Recorded[]) {
 
 function ok(body: unknown): Recorded {
   return { status: 200, body };
+}
+
+const CLOCK_ORIGIN = 1_700_000_000_000;
+
+/**
+ * As `serve`, but each Horizon call also charges `perPageMs` to a clock the
+ * test drives. Page *latency*, not page count, is what exhausts the route's
+ * budget in production, so it is the thing worth simulating; wall-clock time
+ * in the suite stays ~0.
+ */
+function serveWithLatency(perPageMs: number, ...responses: Recorded[]) {
+  let now = CLOCK_ORIGIN;
+  vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+  const fetchMock = vi.fn(async (input: string | URL | Request) => {
+    requested.push(typeof input === 'string' ? input : input.toString());
+    const recorded = responses[Math.min(requested.length - 1, responses.length - 1)];
+    now += perPageMs;
+    return new Response(JSON.stringify(recorded.body), {
+      status: recorded.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
+  vi.stubGlobal('fetch', fetchMock);
+  return { elapsed: () => now - CLOCK_ORIGIN };
+}
+
+/** A busy account: every page reports another, so only the route ends the walk. */
+function endlessPage(): Recorded {
+  return ok({
+    _links: { next: { href: 'https://horizon.stellar.org/next-page' } },
+    _embedded: { records: nativePage._embedded.records },
+  });
 }
 
 function call(query: string): Promise<Response> {
@@ -330,19 +364,6 @@ describe('GET /api/total — pagination', () => {
     expect(requested[1]).toBe('https://horizon.stellar.org/next-page');
   });
 
-  it('stops at the lookback cap instead of walking unbounded history', async () => {
-    // Every page reports another page, as a busy account's history would.
-    serve(
-      ok({
-        _links: { next: { href: 'https://horizon.stellar.org/next-page' } },
-        _embedded: { records: nativePage._embedded.records },
-      }),
-    );
-
-    await call(`?dest=${NATIVE_DEST}`);
-    expect(requested).toHaveLength(MAX_PAGES);
-  });
-
   it('stops when a page comes back empty, even if it links to another', async () => {
     // Horizon's empty pages link to themselves; following that would not end.
     serve(
@@ -354,5 +375,90 @@ describe('GET /api/total — pagination', () => {
 
     await call(`?dest=${NATIVE_DEST}`);
     expect(requested).toHaveLength(1);
+  });
+});
+
+describe('GET /api/total — elapsed-time budget', () => {
+  /** Pages walked before the budget runs out, at a given per-page latency. */
+  const pagesWithin = (perPageMs: number) => Math.ceil(PAGINATION_BUDGET_MS / perPageMs);
+
+  it('returns 200 with a partial total, not 502, when the budget runs out', async () => {
+    serveWithLatency(3_000, endlessPage());
+
+    const response = await call(`?dest=${NATIVE_DEST}`);
+
+    // The whole point of the fix: a high-volume account gets a truthful
+    // partial answer instead of a function timeout.
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      funded: true,
+      truncated: true,
+    });
+  });
+
+  it('walks fewer pages when Horizon is slow than when it is fast', async () => {
+    serveWithLatency(2_000, endlessPage());
+    await call(`?dest=${NATIVE_DEST}`);
+    const slowPages = requested.length;
+
+    vi.restoreAllMocks();
+    requested = [];
+
+    serveWithLatency(200, endlessPage());
+    await call(`?dest=${NATIVE_DEST}`);
+    const fastPages = requested.length;
+
+    // A fixed page cap assumed uniform per-page latency and so blew the
+    // function timeout on slow accounts; the budget adapts to it instead.
+    expect(slowPages).toBe(pagesWithin(2_000));
+    expect(fastPages).toBe(pagesWithin(200));
+    expect(fastPages).toBeGreaterThan(slowPages);
+  });
+
+  it('stops a slow walk well before a fixed five-page lookback would have', async () => {
+    // 5 pages x 3s was 15s of Horizon latency alone — past the timeout.
+    serveWithLatency(3_000, endlessPage());
+
+    await call(`?dest=${NATIVE_DEST}`);
+    expect(requested.length).toBeLessThan(5);
+  });
+
+  it('never spends more than the budget plus the page already in flight', async () => {
+    const perPageMs = 1_500;
+    const clock = serveWithLatency(perPageMs, endlessPage());
+
+    await call(`?dest=${NATIVE_DEST}`);
+
+    // The budget is checked before each request, never mid-flight, so the
+    // overrun is bounded by one page — that is the headroom the constant
+    // leaves under the platform timeout.
+    expect(clock.elapsed()).toBeLessThanOrEqual(PAGINATION_BUDGET_MS + perPageMs);
+  });
+
+  it('reports truncated: false when the history ends inside the budget', async () => {
+    serve(ok(nativePage), ok(EMPTY_PAGE));
+
+    const body = await (await call(`?dest=${NATIVE_DEST}`)).json();
+    // Ran out of history, not of time — this total is the whole jar.
+    expect(body.truncated).toBe(false);
+  });
+
+  it('does not mark a slow but complete history as truncated', async () => {
+    // Two pages at 3s each: sluggish, but the history ends before the budget
+    // does. Slowness alone must not put a "+" on a total that is in fact whole.
+    serveWithLatency(3_000, ok(nativePage), ok(EMPTY_PAGE));
+
+    const body = await (await call(`?dest=${NATIVE_DEST}`)).json();
+    expect(requested).toHaveLength(2);
+    expect(body.truncated).toBe(false);
+  });
+
+  it('marks a total truncated only when Horizon still had more to give', async () => {
+    // The budget is spent and the last page pointed onward — genuinely partial.
+    serveWithLatency(3_000, endlessPage());
+
+    const body = await (await call(`?dest=${NATIVE_DEST}`)).json();
+    expect(body.truncated).toBe(true);
+    expect(body.count).toBeGreaterThan(0);
   });
 });
