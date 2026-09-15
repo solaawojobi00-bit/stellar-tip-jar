@@ -1,6 +1,10 @@
 # PRD — stellar-tip-jar
 
-**Status:** Draft v1.0 · **Owner:** Maintainer · **Last updated:** 2026-09-14
+**Status:** Draft v1.1 · **Owner:** Maintainer · **Last updated:** 2026-09-15
+
+Once the visitor-page redesign lands: a design prototype for the full
+creator dashboard exists (Claude Design, https://stellar-tip-jar-phi.vercel.app/)
+and is the reference for P1/P2 below — not yet built.
 
 ## 1. Problem
 There's no simple way for a creator, streamer, or open-source maintainer to
@@ -48,10 +52,25 @@ suggested amounts, and a running total received — pulled live from Horizon.
 - Configurable suggested amounts via a settings UI
 - Recent-tips feed (memo shown only if MEMO_TEXT, sender truncated)
 
+These now have a concrete visual reference in the creator-dashboard design
+prototype (see Status above).
+
 ### P2
 - Optional goal bar with progress from the same running-total data
 - Support for a second asset alongside XLM
 - Richer profile customization
+
+### P3 (Phase 4) — Creator growth tools
+Meaningfully separate builds from the core tipping flow. Unscheduled — not
+committed to a specific release.
+- Export tip history as CSV
+- Stream overlay (OBS-compatible live-updating browser source)
+- Embeddable widget (script/iframe a creator can drop into their own site)
+- Printable QR poster generator
+
+**Open decision:** a "verify on-chain" link (deep link to a block explorer
+for the tip address) needs no backend and could land in Phase 1 or P1 —
+not yet assigned to a phase.
 
 ## 6. Success metrics
 - Zero-signup path from "nothing" to a shareable tip page

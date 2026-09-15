@@ -4,6 +4,10 @@ A zero-login, zero-database tip page for Stellar — share one link, receive tip
 
 **Status:** Phase 1 in progress
 
+A creator dashboard design exists as a forward reference (Claude Design,
+https://stellar-tip-jar-phi.vercel.app/) but is not part of the current
+build — see [PRD.md](PRD.md) for phasing.
+
 ## Setup
 
 ```bash
