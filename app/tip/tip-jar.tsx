@@ -30,7 +30,7 @@ interface TotalResponse {
 type TotalState =
   | { status: 'loading' }
   | { status: 'error' }
-  | { status: 'loaded'; total: string; count: number; funded: boolean };
+  | { status: 'loaded'; total: string; count: number; funded: boolean; truncated: boolean };
 
 /**
  * The "Other" chip is a selection, not an amount: picking it means "I'll type
@@ -62,6 +62,17 @@ export function formatTotal(total: string): string {
   if (!total.includes('.')) return total;
   const trimmed = total.replace(/0+$/, '').replace(/\.$/, '');
   return trimmed === '' ? '0' : trimmed;
+}
+
+/**
+ * The displayed amount, with a trailing "+" when /api/total stopped short of
+ * the full history. A truncated total is a floor, and "23192.97498+" says so
+ * in the number itself — the same way a counter reads "999+". Without it a
+ * partial sum would be presented as if it were the whole jar.
+ */
+export function formatAmount(total: string, truncated: boolean): string {
+  const amount = formatTotal(total);
+  return truncated ? `${amount}+` : amount;
 }
 
 /**
@@ -144,7 +155,7 @@ function RunningTotal({
     <div className="flex flex-col gap-3 rounded-jar-lg bg-jar-surface p-[18px]">
       <p aria-live="polite" className="flex flex-wrap items-baseline gap-2">
         <span className="font-display text-[27px] leading-none text-jar-clay-800">
-          {formatTotal(state.total)} {assetLabel(asset)}
+          {formatAmount(state.total, state.truncated)} {assetLabel(asset)}
         </span>
         <span className="text-sm text-jar-sand-800">
           in the jar, across {state.count} {state.count === 1 ? 'tip' : 'tips'}
@@ -222,6 +233,7 @@ export default function TipJar({
           total: body.total,
           count: body.count,
           funded: body.funded,
+          truncated: body.truncated,
         });
       } catch {
         // An aborted request is a unmount, not a failure worth showing.

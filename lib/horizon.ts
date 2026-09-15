@@ -9,9 +9,21 @@ import type { Asset } from './sep7';
 
 export const DEFAULT_HORIZON_URL = 'https://horizon.stellar.org';
 
-/** Horizon page size cap, and the most pages we will ever walk per request. */
+/** Horizon page size cap. */
 export const HORIZON_PAGE_LIMIT = 200;
-export const MAX_PAGES = 5;
+
+/**
+ * How long the route may spend walking Horizon before it stops and returns
+ * what it has.
+ *
+ * This replaces a fixed page cap, which bounded the *number* of requests but
+ * not the *time* they take: a busy account's per-page latency alone could
+ * outrun the serverless function timeout, so the request 502'd instead of
+ * returning a partial total. A wall-clock budget bounds the thing that
+ * actually runs out. Sized to leave headroom under the platform timeout for
+ * the in-flight page plus summing and serialising the response.
+ */
+export const PAGINATION_BUDGET_MS = 8_000;
 
 /**
  * The subset of a Horizon payment record we rely on. Horizon returns more

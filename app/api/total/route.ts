@@ -13,7 +13,7 @@
 import {
   DEFAULT_HORIZON_URL,
   HORIZON_PAGE_LIMIT,
-  MAX_PAGES,
+  PAGINATION_BUDGET_MS,
   fromStroops,
   sumPayments,
   type HorizonPaymentsPage,
@@ -73,10 +73,25 @@ export async function GET(request: Request): Promise<Response> {
   let next: string | null =
     `${horizonUrl}/accounts/${dest}/payments?limit=${HORIZON_PAGE_LIMIT}&order=desc`;
 
+  /**
+   * True once we stopped early and Horizon still had more to give — so the
+   * total below is a floor, not the whole history. Tracked rather than
+   * inferred from the record count: only the loop knows whether it ran out of
+   * budget or out of history.
+   */
+  let truncated = false;
+  const deadline = Date.now() + PAGINATION_BUDGET_MS;
+
   try {
-    // Lookback is capped at MAX_PAGES: an unbounded history walk is the main
-    // Horizon rate-limit risk called out in the PRD.
-    for (let page = 0; page < MAX_PAGES && next; page++) {
+    // Walk until the history ends or the budget does. Checking before each
+    // request (never mid-flight) means we always return a real, if partial,
+    // answer instead of letting the function time out into a 502.
+    while (next) {
+      if (Date.now() >= deadline) {
+        truncated = true;
+        break;
+      }
+
       const response: Response = await fetch(next, {
         headers: { Accept: 'application/json' },
       });
@@ -118,6 +133,6 @@ export async function GET(request: Request): Promise<Response> {
     count,
     // Horizon answered, so the account exists — even if nothing matched.
     funded: true,
-    truncated: records.length >= HORIZON_PAGE_LIMIT * MAX_PAGES,
+    truncated,
   });
 }
