@@ -37,6 +37,12 @@ one; never chain them automatically:
 2. **Push** — wait.
 3. **PR description** — show the full text, wait.
 
+## After a merge
+After merging any PR into main, before branching for the next piece of work:
+run `gh run list --branch main --limit 1` and confirm the post-merge CI run on
+main succeeded. A PR's pre-merge CI result does not by itself prove main's
+state after the merge commit lands.
+
 ## PR description format
 In this order:
 1. Header
