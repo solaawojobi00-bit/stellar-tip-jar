@@ -17,6 +17,8 @@ jobs:
           fetch-depth: 0
 
       # This repo is public, so no GITLEAKS_LICENSE is required.
-      - uses: gitleaks/gitleaks-action@v2
+      # v3 is required for the Node 24 runtime: GitHub removes Node 20 from
+      # hosted runners on 2026-09-16, after which v2 stops running entirely.
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
