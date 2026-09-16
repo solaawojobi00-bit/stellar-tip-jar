@@ -10,6 +10,13 @@ updates:
         patterns:
           - "react"
           - "react-dom"
+      test-tooling:
+        patterns:
+          - "vitest"
+          - "jsdom"
+          - "@testing-library/react"
+          - "@testing-library/user-event"
+          - "@vitejs/plugin-react"
 
   - package-ecosystem: "github-actions"
     directory: "/"
