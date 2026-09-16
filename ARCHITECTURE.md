@@ -50,3 +50,9 @@ end to end.
 ## Non-goals (see PRD)
 No database, no auth, no multi-asset totals merged together, no
 slug/claim system — all Phase 2+.
+
+## Not yet built
+A creator dashboard (slugs, claim, settings UI, recent-tips feed, goal bar,
+CSV export, stream overlay, embeddable widget, QR poster) has a design
+prototype but no code in this repo. This is scoped, not an oversight — see
+PRD.md's P1, P2, and P3 sections.
