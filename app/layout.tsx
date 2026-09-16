@@ -31,9 +31,34 @@ const figtree = Figtree({
   display: "swap",
 });
 
+const SITE_URL = "https://stellar-tip-jar-phi.vercel.app";
+const SITE_DESCRIPTION = "A zero-login, zero-database tip page for Stellar.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "stellar-tip-jar",
-  description: "A zero-login, zero-database tip page for Stellar.",
+  description: SITE_DESCRIPTION,
+  openGraph: {
+    title: "stellar-tip-jar",
+    description: SITE_DESCRIPTION,
+    url: "/",
+    siteName: "stellar-tip-jar",
+    images: [
+      {
+        url: "/tip-jar-og.png",
+        width: 1200,
+        height: 630,
+        alt: "stellar-tip-jar",
+      },
+    ],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "stellar-tip-jar",
+    description: SITE_DESCRIPTION,
+    images: ["/tip-jar-og.png"],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

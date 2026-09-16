@@ -1,4 +1,4 @@
-# stellar-tip-jar
+<img src="brand/jarmark-lockup.svg" alt="stellar-tip-jar" width="280">
 
 [![CI](https://github.com/solaawojobi00-bit/stellar-tip-jar/actions/workflows/ci.yml/badge.svg)](https://github.com/solaawojobi00-bit/stellar-tip-jar/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
