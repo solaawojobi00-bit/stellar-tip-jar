@@ -1,5 +1,8 @@
 # stellar-tip-jar
 
+[![CI](https://github.com/solaawojobi00-bit/stellar-tip-jar/actions/workflows/ci.yml/badge.svg)](https://github.com/solaawojobi00-bit/stellar-tip-jar/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A zero-login, zero-database tip page for Stellar — share one link, receive tips.
 
 **Status:** Phase 1 in progress
@@ -22,6 +25,8 @@ A tip page is fully described by its URL:
 ```
 /tip?dest=G...&name=Ada&asset=native&amounts=5,10,25&msg=Thanks!
 ```
+
+<img src="docs/assets/tip-page.png" alt="A stellar-tip-jar tip page: QR code, amount picker, live on-chain total, and destination address" width="360">
 
 ## Scripts
 
