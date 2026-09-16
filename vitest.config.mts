@@ -14,5 +14,18 @@ export default defineConfig({
     // `@vitest-environment jsdom` docblock, so the lib suites stay fast.
     environment: 'node',
     include: ['**/__tests__/**/*.test.{ts,tsx}'],
+    coverage: {
+      provider: 'v8',
+      include: ['app/**', 'lib/**'],
+      exclude: ['**/__tests__/**'],
+      // Suggested starting point (current coverage is ~93-97%) — adjust as
+      // the repo owner sees fit, not a fixed target.
+      thresholds: {
+        statements: 80,
+        branches: 80,
+        functions: 80,
+        lines: 80,
+      },
+    },
   },
 });
