@@ -188,6 +188,24 @@ describe('the builder — copy and preview', () => {
     expect(screen.getByRole('button', { name: 'Link copied' })).toBeTruthy();
   });
 
+  /**
+   * Waits out the real two-second timer rather than faking the clock: fake
+   * timers deadlock against the clipboard promise userEvent awaits, and the
+   * revert is cheap enough to just watch happen.
+   */
+  it('returns to its resting label once the confirmation has been seen', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    await pasteAddress(user, G_REAL);
+    await user.click(copyButton());
+    expect(screen.getByRole('button', { name: 'Link copied' })).toBeTruthy();
+
+    // Otherwise the button reads "Link copied" forever, and a second copy
+    // gives no sign it did anything.
+    expect(await screen.findByRole('button', { name: 'Copy link' }, { timeout: 4000 })).toBeTruthy();
+  }, 10000);
+
   it('opens the preview in a new tab without leaking the opener', async () => {
     const user = userEvent.setup();
     render(<Home />);
