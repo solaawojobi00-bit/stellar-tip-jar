@@ -71,11 +71,17 @@ export interface LinkParts {
  * A valid address is the caller's responsibility.
  */
 export function buildTipLink(origin: string, dest: string, name: string, amounts: string[]): LinkParts {
+  // Every interpolated value goes through encodeURIComponent, including the
+  // address. For a checksum-valid strkey that is the identity -- base32 has
+  // no characters worth escaping -- so nothing about the built link changes.
+  // What changes is that the link's shape no longer depends on a guarantee
+  // made several calls away in isValidDestination: the structure here is
+  // literal, and everything filled into it is escaped on the spot.
   let rest = '';
   if (name) rest += `&name=${encodeURIComponent(name)}`;
-  if (amounts.length) rest += `&amounts=${amounts.join(',')}`;
+  if (amounts.length) rest += `&amounts=${amounts.map(encodeURIComponent).join(',')}`;
 
-  const path = `/tip?dest=${dest}${rest}`;
+  const path = `/tip?dest=${encodeURIComponent(dest)}${rest}`;
   return { prefix: `${origin}/tip?dest=`, dest, rest, href: `${origin}${path}`, path };
 }
 

@@ -74,6 +74,21 @@ describe('link assembly', () => {
     expect(link.href).toBe(`${ORIGIN}${link.path}`);
   });
 
+  it('escapes the address into the path rather than trusting it', () => {
+    // A hostile dest never reaches the href in practice -- it would not be
+    // valid, so no href renders at all. This pins the second line of defence:
+    // the path's structure is literal, and what fills it cannot break out.
+    const link = buildTipLink(ORIGIN, 'javascript:alert(1)', '', []);
+
+    expect(link.path.startsWith('/tip?dest=')).toBe(true);
+    expect(link.path).not.toContain('javascript:');
+  });
+
+  it('leaves a checksum-valid address untouched, escaping being a no-op', () => {
+    // Base32 has nothing to escape, so the guarantee costs the link nothing.
+    expect(buildTipLink(ORIGIN, G_REAL, '', []).path).toBe(`/tip?dest=${G_REAL}`);
+  });
+
   it('keeps a bad origin out of the path that gets navigated', () => {
     // location.origin is the string "null" in a sandboxed or data: document.
     // The absolute form is unusable there; the relative one still works.
