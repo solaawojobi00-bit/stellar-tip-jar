@@ -26,6 +26,14 @@
   --color-jar-surface: #ebddc5;
   --color-jar-ink: #201e1d;
 
+  /*
+   * The backdrop a raised panel sits on. Not part of the "Organic" ramps —
+   * it comes from the link-builder handoff, which floats a `jar-bg` card on
+   * it. Kept one step darker than `jar-surface` so the card's own surface
+   * panel stays the lighter of the two.
+   */
+  --color-jar-shell: #e6dac2;
+
   /* Sand — the neutral ramp. */
   --color-jar-sand-100: #f9f4ed;
   --color-jar-sand-200: #eee7db;
