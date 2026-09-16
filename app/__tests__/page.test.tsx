@@ -66,6 +66,22 @@ describe('link assembly', () => {
     const link = buildTipLink(ORIGIN, G_REAL, 'Ada', ['5']);
     expect(link.prefix + link.dest + link.rest).toBe(link.href);
   });
+
+  it('offers a root-relative path alongside the absolute URL', () => {
+    const link = buildTipLink(ORIGIN, G_REAL, 'Ada', ['5']);
+
+    expect(link.path).toBe(`/tip?dest=${G_REAL}&name=Ada&amounts=5`);
+    expect(link.href).toBe(`${ORIGIN}${link.path}`);
+  });
+
+  it('keeps a bad origin out of the path that gets navigated', () => {
+    // location.origin is the string "null" in a sandboxed or data: document.
+    // The absolute form is unusable there; the relative one still works.
+    const link = buildTipLink('null', G_REAL, '', []);
+
+    expect(link.path).toBe(`/tip?dest=${G_REAL}`);
+    expect(link.path.startsWith('/tip?')).toBe(true);
+  });
 });
 
 describe('amount parsing', () => {
@@ -174,7 +190,22 @@ describe('the builder — copy and preview', () => {
     await pasteAddress(user, G_REAL);
 
     expect((copyButton() as HTMLButtonElement).disabled).toBe(false);
-    expect(previewLink()!.getAttribute('href')).toBe(`${ORIGIN}/tip?dest=${G_REAL}`);
+    // Root-relative: navigating within the deployment needs no origin, and
+    // keeping one out of the href keeps window.location out of a DOM sink.
+    expect(previewLink()!.getAttribute('href')).toBe(`/tip?dest=${G_REAL}`);
+  });
+
+  it('copies an absolute URL even though it previews a relative one', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    await pasteAddress(user, G_REAL);
+    await user.click(copyButton());
+
+    // What lands in a bio has to carry the host; what the browser follows
+    // in-place does not.
+    expect(await navigator.clipboard.readText()).toBe(`${ORIGIN}/tip?dest=${G_REAL}`);
+    expect(previewLink()!.getAttribute('href')).toBe(`/tip?dest=${G_REAL}`);
   });
 
   it('copies the built link and says so', async () => {

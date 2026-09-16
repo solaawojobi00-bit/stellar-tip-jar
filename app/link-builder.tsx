@@ -45,27 +45,38 @@ export function parseBuilderAmounts(raw: string): string[] {
 
 /**
  * A built link, split where the display colours it: the fixed prefix, the
- * address itself, and the optional tail. Joined, these are the whole URL.
+ * address itself, and the optional tail. Joined, those are `href`.
  */
 export interface LinkParts {
+  /** Display prefix, origin included — what the creator reads and copies. */
   prefix: string;
   dest: string;
   rest: string;
+  /** Absolute URL, for the clipboard. A relative path in a bio is useless. */
   href: string;
+  /**
+   * The same link, root-relative, for navigating inside this deployment.
+   *
+   * Kept separate from `href` so no origin read off `window` ever reaches an
+   * anchor: a same-site link does not need one, and building one anyway means
+   * a sandboxed or `data:` document — where `location.origin` is the string
+   * "null" — would render a broken "null/tip?…" href.
+   */
+  path: string;
 }
 
 /**
- * Assemble the tip link. `origin` is empty until the component has mounted, in
- * which case the result is a root-relative URL — still correct, just not yet
- * shareable. A valid address is the caller's responsibility.
+ * Assemble the tip link. `origin` is empty until the component has mounted, so
+ * `href` is root-relative until then — still correct, just not yet shareable.
+ * A valid address is the caller's responsibility.
  */
 export function buildTipLink(origin: string, dest: string, name: string, amounts: string[]): LinkParts {
   let rest = '';
   if (name) rest += `&name=${encodeURIComponent(name)}`;
   if (amounts.length) rest += `&amounts=${amounts.join(',')}`;
 
-  const prefix = `${origin}/tip?dest=`;
-  return { prefix, dest, rest, href: `${prefix}${dest}${rest}` };
+  const path = `/tip?dest=${dest}${rest}`;
+  return { prefix: `${origin}/tip?dest=`, dest, rest, href: `${origin}${path}`, path };
 }
 
 type DestState = 'empty' | 'valid' | 'invalid';
@@ -263,7 +274,7 @@ export default function LinkBuilder() {
             {copied ? 'Link copied' : 'Copy link'}
           </button>
           <a
-            href={valid ? link.href : undefined}
+            href={valid ? link.path : undefined}
             target="_blank"
             rel="noreferrer noopener"
             aria-disabled={!valid}
