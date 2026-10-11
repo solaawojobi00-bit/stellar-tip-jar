@@ -114,3 +114,14 @@ export function isValidDestination(value: string): boolean {
 export function isValidStrkeyOfType(value: string, type: StrkeyType): boolean {
   return decodeStrkey(value)?.type === type;
 }
+
+/**
+ * Shorten a strkey for display: first 8 characters, an ellipsis, last 8.
+ *
+ * Both halves are kept because that is how a reader actually checks an address
+ * against one they already have — a prefix alone is not enough. Short values
+ * are returned unchanged rather than padded into a fake-looking ellipsis.
+ */
+export function truncateAddress(value: string): string {
+  return value.length <= 20 ? value : `${value.slice(0, 8)}…${value.slice(-8)}`;
+}

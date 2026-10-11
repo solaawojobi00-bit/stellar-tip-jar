@@ -15,7 +15,9 @@
 import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useRef, useState } from 'react';
 
+import type { TipEntry } from '@/lib/recent-tips';
 import { assetLabel, buildPayUri, type Asset } from '@/lib/sep7';
+import { truncateAddress } from '@/lib/strkey';
 
 /** Response shape of /api/total. Kept in step with app/api/total/route.ts. */
 interface TotalResponse {
@@ -27,10 +29,24 @@ interface TotalResponse {
   truncated: boolean;
 }
 
+/** Response shape of /api/recent. Kept in step with app/api/recent/route.ts. */
+interface RecentResponse {
+  dest: string;
+  asset: string;
+  limit: number;
+  tips: TipEntry[];
+  funded: boolean;
+}
+
 type TotalState =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'loaded'; total: string; count: number; funded: boolean; truncated: boolean };
+
+type RecentState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'loaded'; tips: TipEntry[] };
 
 /**
  * The "Other" chip is a selection, not an amount: picking it means "I'll type
@@ -76,11 +92,23 @@ export function formatAmount(total: string, truncated: boolean): string {
 }
 
 /**
- * Shorten a strkey for display. The full value stays in the button's title and
- * is what actually gets copied — this is only to keep the address on one line.
+ * Re-exported so the destination button and the recent-tips feed shorten
+ * addresses identically. The feed's senders are truncated server-side, in
+ * lib/recent-tips, by this same function — the full value never reaches the
+ * browser at all.
  */
-export function truncateAddress(dest: string): string {
-  return dest.length <= 20 ? dest : `${dest.slice(0, 8)}…${dest.slice(-8)}`;
+export { truncateAddress };
+
+/**
+ * Horizon's `created_at` as a short, locale-independent date.
+ *
+ * Deliberately not a "3 hours ago" string: that would differ between the
+ * server render and the client's clock, and a tip feed is read, not watched.
+ */
+export function formatTipDate(at: string): string {
+  const parsed = new Date(at);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
 }
 
 /** The tip-jar mark. Shared by the header and the post-send screen. */
@@ -182,6 +210,65 @@ function RunningTotal({
   );
 }
 
+/**
+ * The last few tips, as the server sanitized them.
+ *
+ * This renders `TipEntry` fields and nothing else: the sender arrives already
+ * truncated and the memo is MEMO_TEXT or null, so there is no raw Horizon
+ * record here to leak a field from.
+ */
+function RecentTips({ state, asset }: { state: RecentState; asset: Asset }) {
+  if (state.status === 'loading') {
+    return (
+      <p aria-live="polite" className="text-sm text-jar-sand-600">
+        Loading recent tips…
+      </p>
+    );
+  }
+
+  if (state.status === 'error') {
+    return (
+      <p aria-live="polite" className="text-sm text-jar-sand-600">
+        Couldn&apos;t load recent tips right now.
+      </p>
+    );
+  }
+
+  // A jar with no tips yet says so, rather than rendering an empty box that
+  // looks like something failed to load.
+  if (state.tips.length === 0) {
+    return (
+      <p className="text-sm text-jar-sand-700">
+        No tips yet — the first one shows up here.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="flex flex-col gap-2">
+      {state.tips.map((tip) => (
+        <li
+          key={`${tip.at}-${tip.from}-${tip.amount}`}
+          className="flex flex-col gap-1 rounded-jar-md border-2 border-jar-sand-300 px-3.5 py-2.5"
+        >
+          <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <span className="text-[15px] font-bold text-jar-clay-800">
+              {formatTotal(tip.amount)} {assetLabel(asset)}
+            </span>
+            <span className="text-[12.5px] text-jar-sand-700">{formatTipDate(tip.at)}</span>
+          </span>
+          <span className="font-mono text-[12.5px] text-jar-sand-700">from {tip.from}</span>
+          {tip.memo ? (
+            <span className="text-[13px] leading-normal text-jar-sand-900">
+              &ldquo;{tip.memo}&rdquo;
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function TipJar({
   dest,
   asset,
@@ -195,6 +282,7 @@ export default function TipJar({
   const [addressCopied, setAddressCopied] = useState(false);
   const [sent, setSent] = useState(false);
   const [total, setTotal] = useState<TotalState>({ status: 'loading' });
+  const [recent, setRecent] = useState<RecentState>({ status: 'loading' });
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const addressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -238,6 +326,33 @@ export default function TipJar({
       } catch {
         // An aborted request is a unmount, not a failure worth showing.
         if (!controller.signal.aborted) setTotal({ status: 'error' });
+      }
+    }
+
+    void load();
+    return () => controller.abort();
+  }, [dest, asset]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function load() {
+      try {
+        const params = new URLSearchParams({ dest, asset: assetParam(asset) });
+        const response = await fetch(`/api/recent?${params.toString()}`, {
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          setRecent({ status: 'error' });
+          return;
+        }
+
+        const body = (await response.json()) as RecentResponse;
+        setRecent({ status: 'loaded', tips: body.tips });
+      } catch {
+        // An aborted request is an unmount, not a failure worth showing.
+        if (!controller.signal.aborted) setRecent({ status: 'error' });
       }
     }
 
@@ -392,6 +507,17 @@ export default function TipJar({
       </a>
 
       <RunningTotal state={total} asset={asset} explorerUrl={explorerUrl} />
+
+      <section aria-label="Recent tips" className="flex flex-col gap-2.5">
+        <span className="text-xs font-bold uppercase tracking-[0.12em] text-jar-sand-700">
+          Recent tips
+        </span>
+        <RecentTips state={recent} asset={asset} />
+        <p className="text-[12.5px] leading-normal text-jar-sand-700">
+          Senders are shortened and only plain-text memos are shown — everything here is already
+          public on the ledger.
+        </p>
+      </section>
 
       <section aria-label="Destination" className="flex flex-col gap-2">
         <span className="text-xs font-bold uppercase tracking-[0.12em] text-jar-sand-700">
