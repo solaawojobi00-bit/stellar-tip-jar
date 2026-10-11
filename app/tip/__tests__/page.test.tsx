@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { parseSuggestedAmounts } from '@/lib/sep7';
 
-import { formatAmount, formatTotal, truncateAddress } from '../tip-jar';
+import { formatAmount, formatTipDate, formatTotal, truncateAddress } from '../tip-jar';
 import TipPage from '../page';
 
 /**
@@ -14,8 +14,10 @@ import TipPage from '../page';
  * is an async function returning JSX, so it can be awaited and rendered along
  * with its <TipJar> client island.
  *
- * /api/total is served from canned responses matching the contract in
- * app/api/total/route.ts — no network calls.
+ * /api/total and /api/recent are served from canned responses matching the
+ * contracts in app/api/total/route.ts and app/api/recent/route.ts — no network
+ * calls. The two endpoints are dispatched on their URL, so a test that only
+ * cares about one of them still gets a well-formed answer for the other.
  */
 
 const DEST = 'GBP32F37ZHXGSLOE4WAFCLNWQUMY4OUIAUGNBZUF4OD2BG6MS7WKRTSX';
@@ -46,11 +48,54 @@ function unfunded() {
   };
 }
 
+/** One tip, as /api/recent returns it: sender already truncated, memo text or null. */
+function tip(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    from: 'GAQZBH2O…JPWVHJCXG',
+    amount: '25.0000000',
+    at: '2026-09-14T20:43:54Z',
+    memo: null,
+    ...overrides,
+  };
+}
+
+/** A feed response, as /api/recent returns it. */
+function feed(tips: unknown[] = []) {
+  return { dest: DEST, asset: 'native', limit: 5, tips, funded: true };
+}
+
+type Canned = { body: unknown; status: number };
+
 let fetchMock: ReturnType<typeof vi.fn>;
+let totalResponse: Canned;
+let recentResponse: Canned;
+
+/** Route each request to the canned response for its endpoint. */
+function installFetch() {
+  fetchMock = vi.fn(async (input: string | URL | Request) => {
+    const { body, status } = String(input).startsWith('/api/recent')
+      ? recentResponse
+      : totalResponse;
+    return new Response(JSON.stringify(body), { status });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+}
 
 function serveTotal(body: unknown, status = 200) {
-  fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status }));
-  vi.stubGlobal('fetch', fetchMock);
+  totalResponse = { body, status };
+  installFetch();
+}
+
+function serveRecent(body: unknown, status = 200) {
+  recentResponse = { body, status };
+  installFetch();
+}
+
+/** Requests the page made to one endpoint, ignoring the other. */
+function callsTo(prefix: string): string[] {
+  return fetchMock.mock.calls
+    .map((call) => String(call[0]))
+    .filter((url) => url.startsWith(prefix));
 }
 
 /** Render the page for a query string, as Next would. */
@@ -74,7 +119,9 @@ function walletLink(): HTMLElement {
 }
 
 beforeEach(() => {
-  serveTotal(funded());
+  totalResponse = { body: funded(), status: 200 };
+  recentResponse = { body: feed(), status: 200 };
+  installFetch();
 });
 
 afterEach(() => {
@@ -276,9 +323,8 @@ describe('tip page — running total', () => {
   it('requests /api/total for the destination and asset', async () => {
     await renderTip();
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const url = String(fetchMock.mock.calls[0][0]);
-    expect(url.startsWith('/api/total?')).toBe(true);
+    await waitFor(() => expect(callsTo('/api/total')).toHaveLength(1));
+    const url = callsTo('/api/total')[0];
 
     const params = new URLSearchParams(url.slice(url.indexOf('?') + 1));
     expect(params.get('dest')).toBe(DEST);
@@ -288,8 +334,8 @@ describe('tip page — running total', () => {
   it('sends the code:issuer pair for a credit asset', async () => {
     await renderTip({ asset: `USDC:${USDC_ISSUER}` });
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const url = String(fetchMock.mock.calls[0][0]);
+    await waitFor(() => expect(callsTo('/api/total')).toHaveLength(1));
+    const url = callsTo('/api/total')[0];
     expect(new URLSearchParams(url.slice(url.indexOf('?') + 1)).get('asset')).toBe(
       `USDC:${USDC_ISSUER}`,
     );
@@ -391,10 +437,10 @@ describe('tip page — running total', () => {
     const user = userEvent.setup();
     await renderTip({ amounts: '5,10' });
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(callsTo('/api/total')).toHaveLength(1));
     await user.click(screen.getByRole('button', { name: '5 XLM' }));
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(callsTo('/api/total')).toHaveLength(1);
   });
 });
 
@@ -550,5 +596,133 @@ describe('formatAmount', () => {
   it('puts the "+" on the number, not after the asset code', () => {
     // "23192.97498+ XLM", never "23192.97498 XLM+".
     expect(formatAmount('23192.9749800', true).endsWith('+')).toBe(true);
+  });
+});
+
+describe('tip page — recent tips', () => {
+  it('requests /api/recent for the destination and asset', async () => {
+    await renderTip();
+
+    await waitFor(() => expect(callsTo('/api/recent')).toHaveLength(1));
+    const url = callsTo('/api/recent')[0];
+
+    const params = new URLSearchParams(url.slice(url.indexOf('?') + 1));
+    expect(params.get('dest')).toBe(DEST);
+    expect(params.get('asset')).toBe('native');
+  });
+
+  it('never calls /api/recent when the link is invalid', async () => {
+    render(await TipPage({ searchParams: Promise.resolve({ dest: 'not-a-key' }) }));
+    expect(callsTo('/api/recent')).toHaveLength(0);
+  });
+
+  it('renders a row per tip, with amount, asset and shortened sender', async () => {
+    serveRecent(feed([tip(), tip({ amount: '5.0000000', at: '2026-09-13T10:00:00Z' })]));
+    await renderTip();
+
+    const rows = within(await screen.findByRole('list')).getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getByText('25 XLM')).toBeTruthy();
+    expect(within(rows[0]).getByText(/GAQZBH2O…JPWVHJCXG/)).toBeTruthy();
+  });
+
+  it('shows a plain-text memo in the row', async () => {
+    serveRecent(feed([tip({ memo: 'thanks for the stream' })]));
+    await renderTip();
+
+    expect(await screen.findByText(/thanks for the stream/)).toBeTruthy();
+  });
+
+  it('renders no memo text when the tip has none', async () => {
+    serveRecent(feed([tip({ memo: null })]));
+    await renderTip();
+
+    const rows = within(await screen.findByRole('list')).getAllByRole('listitem');
+    // Amount, date and sender only — nothing stands in for an absent memo.
+    expect(rows[0].textContent).toBe('25 XLM2026-09-14from GAQZBH2O…JPWVHJCXG');
+  });
+
+  it('renders the date as an unambiguous calendar day', async () => {
+    serveRecent(feed([tip({ at: '2026-09-14T20:43:54Z' })]));
+    await renderTip();
+
+    expect(await screen.findByText('2026-09-14')).toBeTruthy();
+  });
+
+  it('never shows a full sender address', async () => {
+    serveRecent(feed([tip()]));
+    await renderTip();
+
+    await screen.findByRole('list');
+    // The destination is on the page by design; a sender never is in full.
+    expect(screen.queryByText(/GAQZBH2OCP5H2GMD3F42TIQYM3AHALCDOXIIP24SDRS5JW4JPWVHJCXG/)).toBeNull();
+  });
+
+  it('says so when the jar has no tips yet, rather than showing an empty box', async () => {
+    serveRecent(feed([]));
+    await renderTip();
+
+    expect(await screen.findByText(/No tips yet/)).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: 'Recent tips' })).queryByRole('list')).toBeNull();
+  });
+
+  it('shows a fallback when /api/recent fails', async () => {
+    serveRecent({ error: 'Horizon request failed.' }, 502);
+    await renderTip();
+
+    expect(await screen.findByText(/Couldn't load recent tips/)).toBeTruthy();
+  });
+
+  it('keeps the running total working when only the feed fails', async () => {
+    serveRecent({ error: 'Horizon request failed.' }, 502);
+    await renderTip();
+
+    expect(await screen.findByText(/23192\.97498 XLM/)).toBeTruthy();
+    expect(screen.getByText(/Couldn't load recent tips/)).toBeTruthy();
+  });
+
+  it('explains what the feed does and does not show', async () => {
+    serveRecent(feed([tip()]));
+    await renderTip();
+
+    await screen.findByRole('list');
+    expect(screen.getByText(/only plain-text memos are shown/)).toBeTruthy();
+  });
+
+  it('does not refetch the feed when an amount is selected', async () => {
+    const user = userEvent.setup();
+    await renderTip({ amounts: '5,10' });
+
+    await waitFor(() => expect(callsTo('/api/recent')).toHaveLength(1));
+    await user.click(screen.getByRole('button', { name: '5 XLM' }));
+
+    expect(callsTo('/api/recent')).toHaveLength(1);
+  });
+
+  it('labels the feed with the asset the page is for', async () => {
+    serveRecent({
+      ...feed([tip({ amount: '12.0000000' })]),
+      asset: `USDC:${USDC_ISSUER}`,
+    });
+    await renderTip({ asset: `USDC:${USDC_ISSUER}` });
+
+    const rows = within(await screen.findByRole('list')).getAllByRole('listitem');
+    expect(within(rows[0]).getByText('12 USDC')).toBeTruthy();
+  });
+});
+
+describe('formatTipDate', () => {
+  it('renders a Horizon timestamp as its UTC calendar day', () => {
+    expect(formatTipDate('2026-09-14T20:43:54Z')).toBe('2026-09-14');
+  });
+
+  it('does not drift with the reader’s timezone', () => {
+    // Late-evening UTC is already "tomorrow" in some zones; the ledger's day
+    // is the one that matches what an explorer will show.
+    expect(formatTipDate('2026-09-14T23:59:59Z')).toBe('2026-09-14');
+  });
+
+  it('renders nothing for an unparseable timestamp', () => {
+    expect(formatTipDate('not-a-date')).toBe('');
   });
 });
