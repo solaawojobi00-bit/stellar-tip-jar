@@ -8,22 +8,15 @@
  * payment has been handed to the wallet.
  */
 
-import Link from 'next/link';
-
+import { DEFAULT_SUGGESTED_AMOUNTS } from '@/lib/amounts';
 import { DEFAULT_HORIZON_URL } from '@/lib/horizon';
 import { parseAsset, parseSuggestedAmounts } from '@/lib/sep7';
 import { isValidDestination } from '@/lib/strkey';
 
+import ErrorPanel from '../error-panel';
 import TipJar from './tip-jar';
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-
-/**
- * Suggested amounts when the link carries none, from the design handoff.
- * `parseSuggestedAmounts` intentionally returns [] for an absent param — the
- * default belongs to the page, not to the parser.
- */
-const DEFAULT_AMOUNTS = ['5', '25', '100'];
 
 /** Query params arrive as string | string[]; take the first value. */
 function one(value: string | string[] | undefined): string | undefined {
@@ -36,25 +29,28 @@ function one(value: string | string[] | undefined): string | undefined {
  * server sees HORIZON_URL — a "verify on-chain" link pointing at the wrong
  * network would be worse than no link at all.
  */
+/**
+ * The Settings screen for this same jar.
+ *
+ * /settings reads exactly the params /tip does, so the whole configuration is
+ * handed over as-is — including an explicitly empty `amounts`, which means
+ * "no chips" rather than "fall back to the defaults". Re-serialised from the
+ * parsed params rather than passed through as a raw string so nothing beyond
+ * these five keys can ride along.
+ */
+function settingsUrlFor(params: Record<string, string | string[] | undefined>): string {
+  const query = new URLSearchParams();
+  for (const key of ['dest', 'name', 'asset', 'amounts', 'msg'] as const) {
+    const value = one(params[key]);
+    if (value !== undefined) query.set(key, value);
+  }
+  return `/settings?${query.toString()}`;
+}
+
 function explorerUrlFor(dest: string): string {
   const horizon = process.env.HORIZON_URL ?? DEFAULT_HORIZON_URL;
   const network = horizon.includes('testnet') ? 'testnet' : 'public';
   return `https://stellar.expert/explorer/${network}/account/${dest}`;
-}
-
-function ErrorPanel({ title, detail }: { title: string; detail: string }) {
-  return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 bg-jar-bg px-6 py-12 font-body text-jar-ink">
-      <h1 className="font-display text-[31px] leading-tight text-jar-clay-800">{title}</h1>
-      <p className="text-[15px] leading-normal text-jar-sand-800">{detail}</p>
-      <Link
-        href="/"
-        className="text-sm text-jar-clay-700 underline underline-offset-[3px] hover:text-jar-clay-800"
-      >
-        Back to home
-      </Link>
-    </main>
-  );
 }
 
 export default async function TipPage({ searchParams }: { searchParams: SearchParams }) {
@@ -93,7 +89,8 @@ export default async function TipPage({ searchParams }: { searchParams: SearchPa
   }
 
   const parsed = parseSuggestedAmounts(one(params.amounts));
-  const amounts = params.amounts === undefined && parsed.length === 0 ? DEFAULT_AMOUNTS : parsed;
+  const amounts =
+    params.amounts === undefined && parsed.length === 0 ? DEFAULT_SUGGESTED_AMOUNTS : parsed;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 bg-jar-bg px-6 py-10 font-body text-jar-ink">
@@ -104,6 +101,7 @@ export default async function TipPage({ searchParams }: { searchParams: SearchPa
         name={name}
         msg={msg}
         explorerUrl={explorerUrlFor(dest)}
+        settingsUrl={settingsUrlFor(params)}
       />
     </main>
   );

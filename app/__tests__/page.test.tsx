@@ -26,6 +26,7 @@ const ORIGIN = 'http://localhost:3000';
 const address = () => screen.getByLabelText(/Your Stellar address/i);
 const copyButton = () => screen.getByRole('button', { name: /Copy link|Link copied/ });
 const previewLink = () => screen.queryByRole('link', { name: 'Preview page' });
+const settingsLink = () => screen.getByRole('link', { name: 'Edit amounts' });
 
 /**
  * Put an address in the field the way a creator does — by pasting it. Typing
@@ -72,6 +73,15 @@ describe('link assembly', () => {
 
     expect(link.path).toBe(`/tip?dest=${G_REAL}&name=Ada&amounts=5`);
     expect(link.href).toBe(`${ORIGIN}${link.path}`);
+  });
+
+  it('points at the same jar on /settings as it does on /tip', () => {
+    // The one-line amounts field and the full editor are two views of one
+    // configuration, so the handover is the identical query string.
+    const link = buildTipLink(ORIGIN, G_REAL, 'Ada', ['5']);
+
+    expect(link.settingsPath).toBe(`/settings?dest=${G_REAL}&name=Ada&amounts=5`);
+    expect(link.settingsPath).toBe(link.path.replace('/tip?', '/settings?'));
   });
 
   it('escapes the address into the path rather than trusting it', () => {
@@ -251,6 +261,27 @@ describe('the builder — copy and preview', () => {
     // gives no sign it did anything.
     expect(await screen.findByRole('button', { name: 'Copy link' }, { timeout: 4000 })).toBeTruthy();
   }, 10000);
+
+  it('hands the built jar over to the settings editor', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    await pasteAddress(user, G_REAL);
+    await user.type(screen.getByLabelText(/Amounts/i), '5, 25');
+
+    // Same tab, and carrying what the builder has so far — the editor opens
+    // on this jar rather than on a blank form.
+    expect(settingsLink().getAttribute('href')).toBe(`/settings?dest=${G_REAL}&amounts=5,25`);
+    expect(settingsLink().getAttribute('target')).toBeNull();
+  });
+
+  it('withholds the settings editor until there is an address to configure', () => {
+    render(<Home />);
+
+    // No href, so it is not yet a link at all — same treatment as the preview.
+    expect(screen.queryByRole('link', { name: 'Edit amounts' })).toBeNull();
+    expect(screen.getByText('Edit amounts').getAttribute('aria-disabled')).toBe('true');
+  });
 
   it('opens the preview in a new tab without leaking the opener', async () => {
     const user = userEvent.setup();
