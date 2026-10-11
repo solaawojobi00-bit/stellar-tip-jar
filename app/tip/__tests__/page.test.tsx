@@ -503,6 +503,56 @@ describe('tip page — address and ledger links', () => {
   });
 });
 
+describe('tip page — the way back to settings', () => {
+  const settingsLink = () => screen.getByRole('link', { name: 'Edit amounts' });
+
+  it('hands this jar over to the settings editor intact', async () => {
+    await renderTip({ name: 'Ada', amounts: '5,25', msg: 'Thanks!' });
+
+    const params = new URL(settingsLink().getAttribute('href')!, 'http://x').searchParams;
+    expect(params.get('dest')).toBe(DEST);
+    expect(params.get('name')).toBe('Ada');
+    expect(params.get('amounts')).toBe('5,25');
+    expect(params.get('msg')).toBe('Thanks!');
+  });
+
+  it('leaves out params the link never carried', async () => {
+    await renderTip();
+
+    const href = settingsLink().getAttribute('href')!;
+    expect(href).toBe(`/settings?dest=${DEST}`);
+  });
+
+  it('preserves an explicitly empty amounts param', async () => {
+    // "No chips" and "nothing was said" are different configurations, and the
+    // editor has to open on the one the link actually describes.
+    await renderTip({ amounts: '' });
+
+    const href = settingsLink().getAttribute('href')!;
+    expect(new URL(href, 'http://x').searchParams.get('amounts')).toBe('');
+  });
+
+  it('carries a credit asset over, so the editor labels chips correctly', async () => {
+    await renderTip({ asset: `USDC:${USDC_ISSUER}` });
+
+    const params = new URL(settingsLink().getAttribute('href')!, 'http://x').searchParams;
+    expect(params.get('asset')).toBe(`USDC:${USDC_ISSUER}`);
+  });
+
+  it('carries nothing beyond the five params a tip link is made of', async () => {
+    // Re-serialised from the parsed params, not passed through as a raw query
+    // string — anything else in the URL stops here.
+    await renderTip({ utm_source: 'newsletter', amounts: '5' });
+
+    const href = settingsLink().getAttribute('href')!;
+    expect(href).not.toContain('utm_source');
+    expect([...new URL(href, 'http://x').searchParams.keys()].sort()).toEqual([
+      'amounts',
+      'dest',
+    ]);
+  });
+});
+
 describe('truncateAddress', () => {
   it('keeps both ends of a strkey so it stays recognisable', () => {
     const short = truncateAddress(DEST);

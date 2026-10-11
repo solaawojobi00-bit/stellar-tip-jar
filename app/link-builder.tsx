@@ -17,17 +17,11 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
+import { MAX_SUGGESTED_AMOUNTS } from '@/lib/amounts';
 import { parseSuggestedAmounts } from '@/lib/sep7';
 import { isValidDestination } from '@/lib/strkey';
 
 const REPO_URL = 'https://github.com/solaawojobi00-bit/stellar-tip-jar';
-
-/**
- * How many suggested amounts a built link carries. The tip page imposes no
- * limit, but past a handful the chips stop being a shortcut and start being a
- * menu, so the builder declines to generate more.
- */
-const MAX_SUGGESTED_AMOUNTS = 5;
 
 /** How long the copy button stays in its confirmation state. */
 const COPIED_MS = 2000;
@@ -63,6 +57,13 @@ export interface LinkParts {
    * "null" — would render a broken "null/tip?…" href.
    */
   path: string;
+  /**
+   * The Settings screen for this same jar, root-relative. /settings reads the
+   * same params /tip does, so the handover is the identical query string —
+   * the builder's one-line amounts field and the full editor are two views of
+   * one configuration, not two places that have to be kept in step.
+   */
+  settingsPath: string;
 }
 
 /**
@@ -81,8 +82,16 @@ export function buildTipLink(origin: string, dest: string, name: string, amounts
   if (name) rest += `&name=${encodeURIComponent(name)}`;
   if (amounts.length) rest += `&amounts=${amounts.map(encodeURIComponent).join(',')}`;
 
-  const path = `/tip?dest=${encodeURIComponent(dest)}${rest}`;
-  return { prefix: `${origin}/tip?dest=`, dest, rest, href: `${origin}${path}`, path };
+  const query = `dest=${encodeURIComponent(dest)}${rest}`;
+  const path = `/tip?${query}`;
+  return {
+    prefix: `${origin}/tip?dest=`,
+    dest,
+    rest,
+    href: `${origin}${path}`,
+    path,
+    settingsPath: `/settings?${query}`,
+  };
 }
 
 type DestState = 'empty' | 'valid' | 'invalid';
@@ -289,6 +298,15 @@ export default function LinkBuilder() {
             }`}
           >
             Preview page
+          </a>
+          <a
+            href={valid ? link.settingsPath : undefined}
+            aria-disabled={!valid}
+            className={`rounded-full border-2 border-jar-sand-300 px-[22px] py-[13px] text-[15px] font-semibold text-jar-sand-800 ${FOCUS_RING} ${
+              valid ? 'hover:bg-jar-sand-200' : 'opacity-45'
+            }`}
+          >
+            Edit amounts
           </a>
         </div>
         <span aria-live="polite" className="sr-only">

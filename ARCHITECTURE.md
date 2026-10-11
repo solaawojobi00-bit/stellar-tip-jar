@@ -24,6 +24,16 @@ pieces that mirror stellar-pay-links — not to rendering. qrcode.react has
 no runtime dependencies of its own and renders declarative SVG, which is
 both smaller and easier to verify than hand-rolling a QR encoder.
 
+### app/settings — the Settings screen
+Edits a jar's suggested amounts with one row per amount instead of a raw
+`amounts=` query param. Reads the same params /tip does and writes a new tip
+link back out; nothing is stored, because in Phase 1 a jar's settings *are*
+its link. Reached from the homepage builder and from the tip page footer.
+
+`amounts` is always written to the link it produces, including as an empty
+value: the tip page falls back to the defaults only for an *absent* param, so
+"no chips at all" has to be said out loud.
+
 ### app/api/total/route.ts — running-total proxy (Route Handler)
 Given dest and asset, paginates Horizon's /accounts/{id}/payments, sums
 matching payment amounts, and returns a cached JSON total. This is the
@@ -34,6 +44,12 @@ Runs on the Node.js runtime: Next.js 16 deprecated the edge runtime for
 route handlers (Edge is now reserved for Proxy). Only the runtime differs —
 the handler is still a thin, stateless, cached proxy in front of Horizon,
 which is what the design actually depends on.
+
+### lib/amounts.ts
+The suggested-amount rules an editor needs: which single value is wrong and
+what to say about it, plus the cap and the defaults. `lib/sep7.ts` answers
+what the `amounts` param *means* and drops bad entries silently; this answers
+why, and the two are pinned to each other by test.
 
 ### lib/strkey.ts, lib/sep7.ts
 Minimal vendored strkey validation and SEP-0007 URI building, mirroring
@@ -52,7 +68,11 @@ No database, no auth, no multi-asset totals merged together, no
 slug/claim system — all Phase 2+.
 
 ## Not yet built
-A creator dashboard (slugs, claim, settings UI, recent-tips feed, goal bar,
-CSV export, stream overlay, embeddable widget, QR poster) has a design
-prototype but no code in this repo. This is scoped, not an oversight — see
-PRD.md's P1, P2, and P3 sections.
+A creator dashboard (slugs, claim, recent-tips feed, goal bar, CSV export,
+stream overlay, embeddable widget, QR poster) has a design prototype but no
+code in this repo. This is scoped, not an oversight — see PRD.md's P1, P2,
+and P3 sections.
+
+The dashboard prototype's Settings tab is the exception: `/settings` exists,
+but as a standalone screen editing a link rather than a tab editing a stored
+profile. Once slugs land it becomes a tab, and saving replaces copying.

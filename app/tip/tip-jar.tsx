@@ -12,6 +12,7 @@
  * and shadow comes from a `jar-*` token in globals.css rather than a literal.
  */
 
+import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -46,6 +47,13 @@ export interface TipJarProps {
   msg?: string;
   /** Block-explorer account URL, resolved server-side for the right network. */
   explorerUrl: string;
+  /**
+   * This jar's Settings screen, carrying the same configuration. A tip page is
+   * also what its creator previews, and the link already states its own
+   * settings in the address bar — so offering the editor here reveals nothing
+   * a visitor could not already read off the URL.
+   */
+  settingsUrl: string;
 }
 
 /** `asset` as /api/total expects it. */
@@ -189,6 +197,7 @@ export default function TipJar({
   name,
   msg,
   explorerUrl,
+  settingsUrl,
 }: TipJarProps) {
   const [selectedAmount, setSelectedAmount] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -442,6 +451,9 @@ export default function TipJar({
         >
           Open source
         </a>
+        <Link href={settingsUrl} className="underline underline-offset-[3px] hover:text-jar-clay-700">
+          Edit amounts
+        </Link>
       </div>
     </div>
   );
