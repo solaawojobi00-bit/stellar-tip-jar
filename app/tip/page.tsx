@@ -11,6 +11,7 @@
 import Link from 'next/link';
 
 import { DEFAULT_HORIZON_URL } from '@/lib/horizon';
+import { parseAvatarUrl, parseBio } from '@/lib/profile';
 import { parseAsset, parseSuggestedAmounts } from '@/lib/sep7';
 import { isValidDestination } from '@/lib/strkey';
 
@@ -95,6 +96,13 @@ export default async function TipPage({ searchParams }: { searchParams: SearchPa
   const parsed = parseSuggestedAmounts(one(params.amounts));
   const amounts = params.amounts === undefined && parsed.length === 0 ? DEFAULT_AMOUNTS : parsed;
 
+  // Avatar and bio are decoration, not addressing: a bad value is dropped and
+  // the page renders without it, rather than joining dest and asset in taking
+  // the whole page down. Both are normalised here, on the server, so the
+  // rejection is settled before any of it reaches an attribute.
+  const avatar = parseAvatarUrl(one(params.avatar));
+  const bio = parseBio(one(params.bio));
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 bg-jar-bg px-6 py-10 font-body text-jar-ink">
       <TipJar
@@ -103,6 +111,8 @@ export default async function TipPage({ searchParams }: { searchParams: SearchPa
         amounts={amounts}
         name={name}
         msg={msg}
+        avatar={avatar}
+        bio={bio}
         explorerUrl={explorerUrlFor(dest)}
       />
     </main>

@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
+import { MAX_BIO_LENGTH, parseAvatarUrl, parseBio } from '@/lib/profile';
 import { parseSuggestedAmounts } from '@/lib/sep7';
 import { isValidDestination } from '@/lib/strkey';
 
@@ -66,20 +67,46 @@ export interface LinkParts {
 }
 
 /**
+ * Profile extras a built link can carry beyond name and amounts. Optional and
+ * last so the common call — address, name, amounts — stays unchanged.
+ */
+export interface ProfileParts {
+  /** Raw avatar URL as typed; only an https one survives into the link. */
+  avatar?: string;
+  /** Raw bio as typed; normalised and length-capped into the link. */
+  bio?: string;
+}
+
+/**
  * Assemble the tip link. `origin` is empty until the component has mounted, so
  * `href` is root-relative until then — still correct, just not yet shareable.
  * A valid address is the caller's responsibility.
+ *
+ * Avatar and bio go through the same `lib/profile.ts` parsers the tip page
+ * uses, so the builder cannot produce a link whose avatar or bio /tip would
+ * then silently drop — what the creator copies is what a visitor sees.
  */
-export function buildTipLink(origin: string, dest: string, name: string, amounts: string[]): LinkParts {
+export function buildTipLink(
+  origin: string,
+  dest: string,
+  name: string,
+  amounts: string[],
+  profile: ProfileParts = {},
+): LinkParts {
   // Every interpolated value goes through encodeURIComponent, including the
   // address. For a checksum-valid strkey that is the identity -- base32 has
   // no characters worth escaping -- so nothing about the built link changes.
   // What changes is that the link's shape no longer depends on a guarantee
   // made several calls away in isValidDestination: the structure here is
   // literal, and everything filled into it is escaped on the spot.
+  const avatar = parseAvatarUrl(profile.avatar);
+  const bio = parseBio(profile.bio);
+
   let rest = '';
   if (name) rest += `&name=${encodeURIComponent(name)}`;
   if (amounts.length) rest += `&amounts=${amounts.map(encodeURIComponent).join(',')}`;
+  if (avatar) rest += `&avatar=${encodeURIComponent(avatar)}`;
+  if (bio) rest += `&bio=${encodeURIComponent(bio)}`;
 
   const path = `/tip?dest=${encodeURIComponent(dest)}${rest}`;
   return { prefix: `${origin}/tip?dest=`, dest, rest, href: `${origin}${path}`, path };
@@ -144,6 +171,8 @@ export default function LinkBuilder() {
   const [dest, setDest] = useState('');
   const [name, setName] = useState('');
   const [amounts, setAmounts] = useState('');
+  const [avatar, setAvatar] = useState('');
+  const [bio, setBio] = useState('');
   const [copied, setCopied] = useState(false);
   const origin = useSyncExternalStore(subscribeToNothing, readOrigin, readNoOrigin);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,7 +189,16 @@ export default function LinkBuilder() {
   const valid = state === 'valid';
   const feedback = DEST_FEEDBACK[state];
 
-  const link = buildTipLink(origin, trimmedDest, name.trim(), parseBuilderAmounts(amounts));
+  const link = buildTipLink(origin, trimmedDest, name.trim(), parseBuilderAmounts(amounts), {
+    avatar,
+    bio,
+  });
+
+  // An avatar URL that was typed but refused needs saying so. Silently
+  // dropping it would hand back a link that looks finished and shows no
+  // picture, and the creator would have no way to tell why.
+  const avatarRejected = avatar.trim() !== '' && parseAvatarUrl(avatar) === undefined;
+  const bioLength = (parseBio(bio) ?? '').length;
 
   async function copyLink() {
     if (!valid) return;
@@ -249,6 +287,56 @@ export default function LinkBuilder() {
               className={`${TEXT_FIELD} border-jar-sand-300`}
             />
           </div>
+        </div>
+
+        <div className="flex flex-col gap-[7px]">
+          <label htmlFor="builder-avatar" className={FIELD_LABEL}>
+            Avatar URL <span className={OPTIONAL_TAG}>· optional</span>
+          </label>
+          <input
+            id="builder-avatar"
+            type="url"
+            spellCheck={false}
+            autoComplete="off"
+            inputMode="url"
+            placeholder="https://…/me.jpg"
+            value={avatar}
+            onChange={(event) => setAvatar(event.target.value)}
+            aria-describedby="builder-avatar-hint"
+            aria-invalid={avatarRejected}
+            className={`${TEXT_FIELD} ${
+              avatarRejected ? 'border-jar-clay-400' : 'border-jar-sand-300'
+            }`}
+          />
+          <span
+            id="builder-avatar-hint"
+            className={`min-h-[18px] text-[12.5px] leading-snug ${
+              avatarRejected ? 'text-jar-clay-700' : 'text-jar-sand-700'
+            }`}
+          >
+            {avatarRejected
+              ? 'Only https image links work — an http or inline one would be blocked on the page.'
+              : 'Link to a picture you already host. It must start with https://'}
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-[7px]">
+          <label htmlFor="builder-bio" className={FIELD_LABEL}>
+            Short bio <span className={OPTIONAL_TAG}>· optional</span>
+          </label>
+          <textarea
+            id="builder-bio"
+            rows={2}
+            maxLength={MAX_BIO_LENGTH}
+            placeholder="One line about what the tips go towards."
+            value={bio}
+            onChange={(event) => setBio(event.target.value)}
+            aria-describedby="builder-bio-hint"
+            className={`w-full resize-none rounded-jar-md border-2 border-jar-sand-300 bg-white px-[18px] py-[13px] text-[15px] text-jar-sand-900 outline-none ${FOCUS_RING}`}
+          />
+          <span id="builder-bio-hint" className="text-[12.5px] leading-snug text-jar-sand-700">
+            {bioLength} of {MAX_BIO_LENGTH} characters
+          </span>
         </div>
       </div>
 

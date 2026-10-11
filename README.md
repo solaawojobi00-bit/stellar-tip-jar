@@ -23,8 +23,12 @@ Then open [http://localhost:3000](http://localhost:3000).
 A tip page is fully described by its URL:
 
 ```
-/tip?dest=G...&name=Ada&asset=native&amounts=5,10,25&msg=Thanks!
+/tip?dest=G...&name=Ada&asset=native&amounts=5,10,25&msg=Thanks!&avatar=https://...&bio=I+draw+maps
 ```
+
+`avatar` must be an `https://` URL to a picture you already host, and `bio`
+is a single line capped at 160 characters. Either one is dropped if it does
+not fit those rules — the rest of the page still renders.
 
 <img src="docs/assets/tip-page.png" alt="A stellar-tip-jar tip page: QR code, amount picker, live on-chain total, and destination address" width="360">
 

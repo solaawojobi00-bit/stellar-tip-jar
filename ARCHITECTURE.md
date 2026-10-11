@@ -8,9 +8,13 @@ a single route handler that proxies and caches a Horizon payments query.
 ## Modules
 
 ### app/tip/page.tsx — the tip page
-Reads dest, name, asset, amounts, msg from the query string. Validates dest
-as a checksummed G/M strkey before rendering anything, on the server, so a
-malformed link shows its error without waiting for JavaScript.
+Reads dest, name, asset, amounts, msg, avatar and bio from the query string.
+Validates dest as a checksummed G/M strkey before rendering anything, on the
+server, so a malformed link shows its error without waiting for JavaScript.
+
+dest and asset are addressing and fail the page when malformed; avatar and
+bio are decoration and are dropped instead, so a bad picture URL costs the
+creator their picture rather than their tip jar.
 
 ### app/tip/tip-jar.tsx — the interactive half
 Client component holding everything that needs a click or the network: the
@@ -34,6 +38,13 @@ Runs on the Node.js runtime: Next.js 16 deprecated the edge runtime for
 route handlers (Edge is now reserved for Proxy). Only the runtime differs —
 the handler is still a thin, stateless, cached proxy in front of Horizon,
 which is what the design actually depends on.
+
+### lib/profile.ts — avatar and bio parsing
+Shared by the tip page and the homepage builder, so the link the builder
+hands back is one /tip will render identically. Closed by default: the
+avatar must be an absolute `https:` URL (which keeps `javascript:`, `data:`
+and mixed-content `http:` out of an `src` attribute), and the bio is
+control-stripped, whitespace-collapsed and length-capped.
 
 ### lib/strkey.ts, lib/sep7.ts
 Minimal vendored strkey validation and SEP-0007 URI building, mirroring
