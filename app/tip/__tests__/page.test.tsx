@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -500,6 +500,153 @@ describe('tip page — address and ledger links', () => {
   it('states that funds are never held or routed', async () => {
     await renderTip({ name: 'Ada' });
     expect(screen.getByText(/We never hold, route, or touch the money/)).toBeTruthy();
+  });
+});
+
+/**
+ * Avatar and bio are the only values on this page that arrive from the query
+ * string and are rendered as something other than plain text, so these drive
+ * the real page with the real parsers and assert on what reaches the DOM.
+ */
+describe('tip page — avatar', () => {
+  const AVATAR = 'https://example.com/ada.jpg';
+
+  /** The avatar image, if the page rendered one at all. */
+  function avatarImage(): HTMLImageElement | null {
+    return document.querySelector('img');
+  }
+
+  it('renders the avatar image when the link carries an https one', async () => {
+    await renderTip({ name: 'Ada', avatar: AVATAR });
+
+    const img = avatarImage();
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('src')).toBe(AVATAR);
+  });
+
+  it('renders no image at all when the link carries no avatar', async () => {
+    // A link that predates this feature must look exactly as it did.
+    await renderTip({ name: 'Ada' });
+    expect(avatarImage()).toBeNull();
+  });
+
+  it.each([
+    ['javascript:alert(1)', 'a script URL'],
+    ['data:image/svg+xml,<svg onload=alert(1)>', 'an inline data URL'],
+    ['http://example.com/ada.jpg', 'plain http'],
+    ['/ada.jpg', 'a same-site path'],
+    ['not a url at all', 'junk'],
+  ])('drops %s (%s) rather than putting it in an src', async (avatar) => {
+    await renderTip({ name: 'Ada', avatar });
+
+    expect(avatarImage()).toBeNull();
+    // Not merely absent from the img — absent from the page entirely.
+    expect(document.body.innerHTML).not.toContain('javascript:');
+    expect(document.body.innerHTML).not.toContain('onload=');
+  });
+
+  it('still renders the rest of the jar when the avatar is refused', async () => {
+    await renderTip({ name: 'Ada', avatar: 'javascript:alert(1)' });
+
+    // A bad decoration must not cost the page its reason for existing.
+    expect(screen.getByRole('heading', { name: 'Tip Ada' })).toBeTruthy();
+    expect(screen.getByTitle(`Stellar payment code for ${DEST}`)).toBeTruthy();
+  });
+
+  it('falls back to a monogram when the image fails to load', async () => {
+    await renderTip({ name: 'Ada Lovelace', avatar: AVATAR });
+
+    const img = avatarImage()!;
+    expect(screen.queryByText('AL')).toBeNull();
+
+    // A dead link or a hotlink block arrives as an error event; the browser's
+    // broken-image glyph would read as "this tip page is broken".
+    fireEvent.error(img);
+
+    expect(await screen.findByText('AL')).toBeTruthy();
+    expect(avatarImage()).toBeNull();
+  });
+
+  it('falls back to the jar mark when a failed image has no name to initial', async () => {
+    await renderTip({ avatar: AVATAR });
+
+    fireEvent.error(avatarImage()!);
+
+    await waitFor(() => expect(avatarImage()).toBeNull());
+    // No initials to show, so no empty circle either — the mark stands in.
+    expect(screen.getByRole('heading', { name: 'Tip this creator' })).toBeTruthy();
+  });
+
+  it('keeps the tip link out of the image host’s referrer logs', async () => {
+    await renderTip({ name: 'Ada', avatar: AVATAR });
+    expect(avatarImage()!.getAttribute('referrerpolicy')).toBe('no-referrer');
+  });
+
+  it('leaves the avatar out of the pay URI, which is about money only', async () => {
+    await renderTip({ name: 'Ada', avatar: AVATAR, bio: 'Maps by hand.' });
+
+    const href = walletLink().getAttribute('href')!;
+    const params = new URLSearchParams(href.slice(href.indexOf('?') + 1));
+    expect(params.has('avatar')).toBe(false);
+    expect(params.has('bio')).toBe(false);
+  });
+});
+
+describe('tip page — bio', () => {
+  it('renders the bio alongside the name', async () => {
+    await renderTip({ name: 'Ada', bio: 'Open-source maps, drawn by hand.' });
+
+    expect(screen.getByText('Open-source maps, drawn by hand.')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Tip Ada' })).toBeTruthy();
+  });
+
+  it('renders a bio with no name at all', async () => {
+    await renderTip({ bio: 'Tips keep the lights on.' });
+    expect(screen.getByText('Tips keep the lights on.')).toBeTruthy();
+  });
+
+  it('renders markup in a bio as text, never as elements', async () => {
+    await renderTip({ name: 'Ada', bio: '<img src=x onerror=alert(1)> <b>bold</b>' });
+
+    expect(screen.getByText('<img src=x onerror=alert(1)> <b>bold</b>')).toBeTruthy();
+    expect(document.querySelector('img')).toBeNull();
+    expect(document.querySelector('b')).toBeNull();
+  });
+
+  it('collapses a multi-line bio into one line', async () => {
+    await renderTip({ bio: 'I draw   maps\nand charts' });
+    expect(screen.getByText('I draw maps and charts')).toBeTruthy();
+  });
+
+  it('caps an over-long bio instead of pushing the QR off the page', async () => {
+    const long = 'word '.repeat(80).trim();
+    await renderTip({ name: 'Ada', bio: long });
+
+    const rendered = screen.getByText(/^word word/);
+    expect(rendered.textContent!.length).toBeLessThan(long.length);
+    expect(rendered.textContent!.endsWith('…')).toBe(true);
+  });
+
+  it('renders no bio paragraph when the link carries none', async () => {
+    await renderTip({ name: 'Ada', msg: 'coffee' });
+
+    // The msg paragraph is still the only one under the heading.
+    const heading = screen.getByRole('heading', { name: 'Tip Ada' });
+    const identity = heading.closest('div')!.parentElement!;
+    expect(within(identity).getAllByText(/coffee/).length).toBe(1);
+    expect(identity.querySelectorAll('p').length).toBe(1);
+  });
+
+  it('keeps bio and msg as separate things', async () => {
+    await renderTip({ name: 'Ada', bio: 'I draw maps.', msg: 'coffee & cake' });
+
+    expect(screen.getByText('I draw maps.')).toBeTruthy();
+    expect(screen.getByText('coffee & cake')).toBeTruthy();
+    // msg is the wallet's note and still travels in the pay URI; bio does not.
+    const href = walletLink().getAttribute('href')!;
+    const params = new URLSearchParams(href.slice(href.indexOf('?') + 1));
+    expect(params.get('msg')).toBe('coffee & cake');
+    expect(params.has('bio')).toBe(false);
   });
 });
 

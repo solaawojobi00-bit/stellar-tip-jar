@@ -1,8 +1,9 @@
 'use client';
 
 /**
- * Interactive half of the tip page: branding, QR, amount selection, wallet
- * hand-off, the live running total, and the post-send screen.
+ * Interactive half of the tip page: branding, the creator's avatar and bio,
+ * QR, amount selection, wallet hand-off, the live running total, and the
+ * post-send screen.
  *
  * Validation and parsing stay in the server component — an invalid link should
  * render its error without waiting for JavaScript. Everything here needs either
@@ -15,6 +16,7 @@
 import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useRef, useState } from 'react';
 
+import { avatarInitials } from '@/lib/profile';
 import { assetLabel, buildPayUri, type Asset } from '@/lib/sep7';
 
 /** Response shape of /api/total. Kept in step with app/api/total/route.ts. */
@@ -44,6 +46,13 @@ export interface TipJarProps {
   amounts: string[];
   name?: string;
   msg?: string;
+  /**
+   * Avatar image URL, already validated as https by `lib/profile.ts`. Absent
+   * when the link carries none or carried one that was refused.
+   */
+  avatar?: string;
+  /** Short bio, already normalised and length-capped by `lib/profile.ts`. */
+  bio?: string;
   /** Block-explorer account URL, resolved server-side for the right network. */
   explorerUrl: string;
 }
@@ -94,6 +103,67 @@ function JarMark({ size, withLid = false }: { size: number; withLid?: boolean })
       />
       <rect x="18" y="32" width="60" height="10" rx="5" fill="#b2622d" />
     </svg>
+  );
+}
+
+/**
+ * The creator's avatar, with a monogram standing in when the image does not
+ * arrive.
+ *
+ * A remote image on someone else's host is the one thing on this page that
+ * can fail silently: a dead link, a hotlink block or a private album all
+ * render as the browser's broken-image glyph, which looks like the tip page
+ * itself is broken. `onError` swaps in the monogram instead, so the worst
+ * case is the page a link without an avatar would have shown anyway.
+ *
+ * The URL is validated as https in `lib/profile.ts` before it reaches here —
+ * this component never decides what is safe to load.
+ */
+function Avatar({ src, name }: { src: string; name?: string }) {
+  const [failed, setFailed] = useState(false);
+  const initials = avatarInitials(name);
+
+  const frame =
+    'flex h-16 w-16 flex-none items-center justify-center overflow-hidden rounded-full bg-jar-surface';
+
+  if (failed) {
+    return (
+      <span className={frame} aria-hidden="true">
+        {initials ? (
+          <span className="font-display text-[23px] leading-none text-jar-clay-700">
+            {initials}
+          </span>
+        ) : (
+          <JarMark size={34} />
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <span className={`${frame} ring-2 ring-jar-sand-300`}>
+      {/*
+        A plain <img>, not next/image: the host is the creator's, not this
+        deployment's, so there is no remotePatterns entry to put it under and
+        nothing for the optimiser to do but proxy an arbitrary URL on our
+        behalf. Decorative alt — the "Tip {name}" heading beside it already
+        names who this is, and repeating it only adds noise for a screen
+        reader. referrerPolicy keeps the tip link's full URL off the image
+        host's logs.
+      */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        width={64}
+        height={64}
+        loading="lazy"
+        decoding="async"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        className="h-full w-full object-cover"
+      />
+    </span>
   );
 }
 
@@ -188,6 +258,8 @@ export default function TipJar({
   amounts,
   name,
   msg,
+  avatar,
+  bio,
   explorerUrl,
 }: TipJarProps) {
   const [selectedAmount, setSelectedAmount] = useState<string | null>(null);
@@ -333,8 +405,19 @@ export default function TipJar({
     <div className="flex flex-col gap-[22px]">
       <BrandRow />
 
+      {/*
+        Identity: avatar, name, bio. The avatar only appears when the link
+        carries a usable one — a link with just a name renders exactly as it
+        did before, rather than gaining an empty circle it never asked for.
+      */}
       <div className="flex flex-col gap-1.5">
-        <h1 className="font-display text-[31px] leading-tight text-jar-ink">Tip {who}</h1>
+        <div className="flex items-center gap-3.5">
+          {avatar ? <Avatar key={avatar} src={avatar} name={name} /> : null}
+          <h1 className="font-display text-[31px] leading-tight text-jar-ink">Tip {who}</h1>
+        </div>
+        {bio ? (
+          <p className="text-pretty text-[14.5px] leading-relaxed text-jar-sand-700">{bio}</p>
+        ) : null}
         {msg ? <p className="text-[15px] leading-normal text-jar-sand-800">{msg}</p> : null}
       </div>
 

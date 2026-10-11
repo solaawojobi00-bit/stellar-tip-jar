@@ -4,6 +4,8 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { MAX_BIO_LENGTH, parseAvatarUrl, parseBio } from '@/lib/profile';
+
 import Home from '../page';
 import { buildTipLink, parseBuilderAmounts } from '../link-builder';
 
@@ -191,6 +193,166 @@ describe('the builder — optional fields', () => {
     const link = shownLink();
     expect(link).not.toContain('name=');
     expect(link).toContain('amounts=5');
+  });
+});
+
+describe('link assembly — avatar and bio', () => {
+  const AVATAR = 'https://example.com/ada.jpg';
+
+  it('appends avatar and bio when both are usable', () => {
+    const { rest } = buildTipLink(ORIGIN, G_REAL, '', [], { avatar: AVATAR, bio: 'I draw maps.' });
+
+    expect(rest).toBe(
+      `&avatar=${encodeURIComponent(AVATAR)}&bio=${encodeURIComponent('I draw maps.')}`,
+    );
+  });
+
+  it('round-trips both through the query string unchanged', () => {
+    const { href } = buildTipLink(ORIGIN, G_REAL, 'Ada', ['5'], {
+      avatar: 'https://cdn.example.com/a.png?w=128&fit=crop',
+      bio: 'Maps & charts, 100% hand-drawn.',
+    });
+    const params = new URL(href).searchParams;
+
+    expect(params.get('avatar')).toBe('https://cdn.example.com/a.png?w=128&fit=crop');
+    expect(params.get('bio')).toBe('Maps & charts, 100% hand-drawn.');
+  });
+
+  it.each(['javascript:alert(1)', 'http://example.com/a.jpg', 'ada.jpg', ''])(
+    'refuses to build a link carrying the avatar %s',
+    (avatar) => {
+      const { rest, href } = buildTipLink(ORIGIN, G_REAL, '', [], { avatar });
+
+      expect(rest).not.toContain('avatar=');
+      expect(href).not.toContain('javascript:');
+    },
+  );
+
+  it('normalises the bio into the link rather than copying it raw', () => {
+    const { href } = buildTipLink(ORIGIN, G_REAL, '', [], { bio: '  I draw   maps\nand charts ' });
+    expect(new URL(href).searchParams.get('bio')).toBe('I draw maps and charts');
+  });
+
+  it('builds the same link the tip page would then render', () => {
+    // The builder and /tip share lib/profile.ts, so a link that survives the
+    // builder cannot have its avatar or bio dropped on arrival.
+    const { href } = buildTipLink(ORIGIN, G_REAL, 'Ada', [], { avatar: AVATAR, bio: 'Maps.' });
+    const params = new URL(href).searchParams;
+
+    expect(parseAvatarUrl(params.get('avatar'))).toBe(AVATAR);
+    expect(parseBio(params.get('bio'))).toBe('Maps.');
+  });
+
+  it('leaves both out when neither was supplied', () => {
+    expect(buildTipLink(ORIGIN, G_REAL, 'Ada', ['5']).rest).toBe('&name=Ada&amounts=5');
+  });
+
+  it('keeps the split display consistent once the extras are on', () => {
+    const link = buildTipLink(ORIGIN, G_REAL, 'Ada', ['5'], { avatar: AVATAR, bio: 'Maps.' });
+    expect(link.prefix + link.dest + link.rest).toBe(link.href);
+  });
+});
+
+describe('the builder — avatar and bio fields', () => {
+  const AVATAR = 'https://example.com/ada.jpg';
+
+  /** Paste rather than type: a URL is 27 keystrokes and nobody types one. */
+  async function pasteInto(
+    user: ReturnType<typeof userEvent.setup>,
+    field: HTMLElement,
+    value: string,
+  ) {
+    await user.click(field);
+    await user.paste(value);
+  }
+
+  it('folds an avatar URL and a bio into the link', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    await pasteAddress(user, G_REAL);
+    await pasteInto(user, screen.getByLabelText(/Avatar URL/i), AVATAR);
+    await pasteInto(user, screen.getByLabelText(/Short bio/i), 'I draw maps.');
+
+    const params = new URL(shownLink()).searchParams;
+    expect(params.get('avatar')).toBe(AVATAR);
+    expect(params.get('bio')).toBe('I draw maps.');
+  });
+
+  it('says so instead of silently dropping an unusable avatar URL', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    await pasteAddress(user, G_REAL);
+    await pasteInto(user, screen.getByLabelText(/Avatar URL/i), 'http://example.com/ada.jpg');
+
+    // Otherwise the creator copies a finished-looking link and finds out from
+    // a blank circle on their own page.
+    expect(screen.getByText(/Only https image links work/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Avatar URL/i).getAttribute('aria-invalid')).toBe('true');
+    expect(shownLink()).not.toContain('avatar=');
+  });
+
+  it('shows no complaint about an empty avatar field', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    await pasteAddress(user, G_REAL);
+
+    expect(screen.queryByText(/Only https image links work/i)).toBeNull();
+    expect(screen.getByLabelText(/Avatar URL/i).getAttribute('aria-invalid')).toBe('false');
+  });
+
+  it('clears the complaint once the URL is fixed', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    const field = screen.getByLabelText(/Avatar URL/i);
+    await pasteAddress(user, G_REAL);
+    await pasteInto(user, field, 'ada.jpg');
+    expect(screen.getByText(/Only https image links work/i)).toBeTruthy();
+
+    await user.clear(field);
+    await pasteInto(user, field, AVATAR);
+
+    expect(screen.queryByText(/Only https image links work/i)).toBeNull();
+    expect(new URL(shownLink()).searchParams.get('avatar')).toBe(AVATAR);
+  });
+
+  it('counts the bio against the limit the tip page enforces', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    expect(screen.getByText(`0 of ${MAX_BIO_LENGTH} characters`)).toBeTruthy();
+    await pasteInto(user, screen.getByLabelText(/Short bio/i), 'I draw maps.');
+
+    expect(screen.getByText(`12 of ${MAX_BIO_LENGTH} characters`)).toBeTruthy();
+  });
+
+  it('stops a bio at the limit rather than building a link that gets cut', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    await pasteAddress(user, G_REAL);
+    const field = screen.getByLabelText(/Short bio/i) as HTMLTextAreaElement;
+    await pasteInto(user, field, 'z'.repeat(MAX_BIO_LENGTH + 80));
+
+    expect(field.value.length).toBe(MAX_BIO_LENGTH);
+    const bio = new URL(shownLink()).searchParams.get('bio')!;
+    expect(bio.length).toBe(MAX_BIO_LENGTH);
+    expect(bio.endsWith('…')).toBe(false);
+  });
+
+  it('keeps both out of the link while they are untouched', async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    await pasteAddress(user, G_REAL);
+    const link = shownLink();
+
+    expect(link).not.toContain('avatar=');
+    expect(link).not.toContain('bio=');
+    expect(link).toBe(`${ORIGIN}/tip?dest=${G_REAL}`);
   });
 });
 
